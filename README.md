@@ -1,65 +1,102 @@
-Fortnite Porting Mac
+<div align="center">
 
-Fortnite Porting Mac is a simple macOS port of Fortnite Porting designed to make running the application on Mac easier without needing complicated setup or manual configuration.
+# FortnitePorting Mac
+### The easiest way to run FortnitePorting on macOS
 
-Disclaimer
+#### Powered by [Avalonia UI](https://avaloniaui.net/) and [CUE4Parse](https://github.com/FabianFG/CUE4Parse)
 
-I do not own the rights to Fortnite, Epic Games assets, or Fortnite Porting itself.
-This project is simply a macOS port/package of the original application.
+[![Discord](https://discord.com/api/guilds/866821077769781249/widget.png?style=shield)](https://discord.gg/DZ5YFXdBA6)
+[![macOS](https://img.shields.io/badge/macOS-Apple-black?logo=apple&logoColor=white)]()
+[![Release](https://img.shields.io/github/release/YOUR_USERNAME/FortnitePortingMac)]()
+[![Downloads](https://img.shields.io/github/downloads/YOUR_USERNAME/FortnitePortingMac/total?color=green)]()
 
-Credits
+<img alt="FortnitePorting Mac" src=".github/cover.png" />
 
-Huge credit to Halfheart for creating the original Windows version of Fortnite Porting.
-This macOS port would not be possible without his work.
+</div>
 
-Features
-Easy setup for macOS users
-Simple drag-and-drop installation
-Designed for users who do not want to manually mod or configure tools
-Clean packaged experience through a .dmg installer
-Recommended For
+---
 
-This version is recommended for:
+## Installation
 
-Non-modding users
-Users who want an easy installation process
-macOS users looking for a simpler way to run Fortnite Porting
-Installation
-Download the latest .dmg release
-Open the DMG file
-Drag the app into your Applications folder
-Launch the application
-Download
+Download the latest release from [Releases](../../releases/latest).
 
-Please download the .dmg version for the easiest installation experience.
+> [!IMPORTANT]
+> FortnitePorting Mac is simply a macOS port/package of the original FortnitePorting application.
+>
+> Massive credit goes to **Halfheart** for creating FortnitePorting.
+>
+> This project would not be possible without him.
 
-macOS Security Warning
+---
 
-Because this application is not officially signed/notarized by Apple, macOS may warn you when opening it.
+## Recommended
 
-To open:
+Recommended for users who want:
+- Easy installation
+- A simple macOS setup
+- No complicated modding setup
 
-Right click the app
-Press Open
-Press Open again on the warning popup
+Please download the `.dmg` version.
+
+---
+
+## macOS Security Warning
+
+Because the application may not be officially signed/notarized by Apple, macOS may show a warning when opening it.
+
+To open the application:
+
+1. Right click the app
+2. Press **Open**
+3. Press **Open** again
 
 Or go to:
-System Settings → Privacy & Security → Open Anyway
 
-Requirements
-macOS
-Apple Silicon
-(idk if intel works)
-Internet connection for downloads/updates if required
-Support
+`System Settings → Privacy & Security → Open Anyway`
 
-If you experience issues, please open an issue or contact the appropriate community/support channels related to Fortnite Porting.
+---
 
-Legal
+## Building from Source
 
-This project is unofficial and is not affiliated with or endorsed by:
+Clone the repository:
 
-Epic Games
-Apple
+```bash
+git clone https://github.com/YOUR_USERNAME/FortnitePortingMac
+```
 
-All rights belong to their respective owners.
+Build using your preferred macOS development environment.
+
+> [!NOTE]
+> FortnitePorting was originally built for Windows x64.
+>
+> This repository simply packages/runs it for macOS users.
+
+---
+
+## Credits
+
+[Halfheart](https://github.com/h4lfheart) - Creator of the original FortnitePorting project.
+
+[Chippy](https://github.com/Bmarquez1997) - Has done some incredible work on the new material system and exporting features overall.
+
+[Ghost](https://github.com/GhostScissors) - Super helpful with implementing the two built-in RADA and BINKA audio decoders along with fixing tons of asset deserialization issues caused by engine changes.
+
+[Asval](https://github.com/4sval) - An incredible inspiration for tools like Fortnite Porting and main contributor to the [CUE4Parse](https://github.com/FabianFG/CUE4Parse) project.
+
+[GMatrix](https://github.com/GMatrixGames) - Has consistently been hosting AES keys and Mappings through the UEDB project that are utilized every day by Fortnite Porting.
+
+[Marcel](https://github.com/Ka1serM) - Helped out with the Unreal plugins for Fortnite Porting and UEFormat along with tons of world/level export features and inspiration.
+
+[MountainFlash](https://github.com/MinshuG) - Inspiration for a lot of the automation in the Fortnite Porting project when it was first being developed.
+
+[RedHaze](https://github.com/RedHaze) - Added support for proper Pose Asset processing and laid the groundwork for full pose asset exporting with UEFormat.
+
+...And many other people as there have been tons of contributors throughout the lifetime of Fortnite Porting!!
+
+---
+
+## Legal
+
+This project is unofficial and is not affiliated with or endorsed by Epic Games or Apple.
+
+Fortnite and all related assets belong to their respective owners.
