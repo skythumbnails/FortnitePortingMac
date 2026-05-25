@@ -1,0 +1,8 @@
+<Project>
+  <!-- The build tree lives on an exFAT volume, which has no native xattr support, so macOS
+       spawns AppleDouble "._*" sidecar files. Keep them out of every default item glob so the
+       C# / XAML compilers don't try to compile them (CS2015: "binary file instead of text"). -->
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/._*;**/.DS_Store</DefaultItemExcludes>
+  </PropertyGroup>
+</Project>
