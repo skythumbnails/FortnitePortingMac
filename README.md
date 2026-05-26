@@ -61,7 +61,7 @@ Or go to:
 Clone the repository:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/FortnitePortingMac
+git clone https://github.com/skythumbnails/FortnitePortingMac
 ```
 
 Build using your preferred macOS development environment.
