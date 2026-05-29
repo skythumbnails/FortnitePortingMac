@@ -26,12 +26,25 @@ public static class Globals
     
     public static readonly FilePickerFileType PlaylistFileType = new("Fortnite Porting Playlist") { Patterns = [ "*.fp.playlist" ] };
     public static readonly FilePickerFileType ChatAttachmentFileType = new("Image") { Patterns = [ "*.png", "*.jpg", "*.jpeg" ] };
-    public static readonly FilePickerFileType BlenderFileType = new("Blender") { Patterns = [
-    "blender.exe",   // Windows
-    "Blender",       // macOS app bundle binary
-    "blender",       // Linux
-    "*.app"          // macOS app bundles
-]};
+    public static readonly FilePickerFileType BlenderFileType = new("Blender")
+    {
+        Patterns =
+        [
+            "blender.exe",   // Windows
+            "Blender",       // macOS app bundle binary
+            "blender",       // Linux
+            "*.app"          // macOS app bundles (Patterns alone don't enable .app selection)
+        ],
+        // macOS NSOpenPanel hides / greys out .app bundles unless the panel is told they're
+        // a permitted type. Listing the bundle UTI tells AppKit to make them selectable, so
+        // the user can pick "Blender.app" directly without resorting to a paste-path dialog.
+        AppleUniformTypeIdentifiers =
+        [
+            "com.apple.application-bundle",
+            "public.unix-executable",
+            "public.executable"
+        ]
+    };
     public static readonly FilePickerFileType UnrealProjectFileType = new("Unreal Project") { Patterns = ["*.uproject"] };
     
     public static readonly FGuid ZERO_GUID = new();

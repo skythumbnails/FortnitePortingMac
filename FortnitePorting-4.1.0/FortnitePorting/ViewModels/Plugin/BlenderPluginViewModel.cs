@@ -40,55 +40,55 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     public async Task AddInstallation()
     {
-        string? blenderPath;
+        string blenderPath;
 
         if (OperatingSystem.IsMacOS())
         {
-            // On macOS, file pickers grey out .app bundles, so ask user to paste the path
-            string? inputPath = null;
-            var tcs = new TaskCompletionSource<bool>();
-            await TaskService.RunDispatcherAsync(() =>
+            // Avalonia's StorageProvider doesn't make .app bundles selectable in its file picker
+            // on macOS, even with AppleUniformTypeIdentifiers set — the panel ends up showing
+            // bundles greyed out and only folders selectable. Shell out to AppleScript instead;
+            // its `choose file of type` dialog goes straight through AppKit and treats .app
+            // bundles as picks the same way Finder does.
+            string? bundlePath = null;
+            try
             {
-                var textBox = new TextBox
+                using var process = new Process();
+                process.StartInfo = new ProcessStartInfo
                 {
-                    Watermark = "/Applications/Blender.app",
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    MinWidth = 400
+                    FileName = "/usr/bin/osascript",
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
                 };
-                Info.Dialog("Add Blender Installation",
-                    content: textBox,
-                    buttons:
-                    [
-                        new DialogButton
-                        {
-                            Text = "Add",
-                            Action = () =>
-                            {
-                                inputPath = textBox.Text?.Trim();
-                                tcs.TrySetResult(true);
-                            }
-                        }
-                    ]);
-            });
-
-            await tcs.Task;
-
-            if (string.IsNullOrWhiteSpace(inputPath)) return;
-
-            // Accept either the .app bundle or the binary path directly
-            if (inputPath.EndsWith(".app", StringComparison.OrdinalIgnoreCase))
-            {
-                var binaryPath = Path.Combine(inputPath, "Contents", "MacOS", "Blender");
-                if (!File.Exists(binaryPath))
+                process.StartInfo.ArgumentList.Add("-e");
+                process.StartInfo.ArgumentList.Add(
+                    "POSIX path of (choose file of type {\"com.apple.application-bundle\"} " +
+                    "default location (POSIX file \"/Applications\") " +
+                    "with prompt \"Select Blender.app\")");
+                process.Start();
+                var output = await process.StandardOutput.ReadToEndAsync();
+                await process.WaitForExitAsync();
+                if (process.ExitCode == 0)
                 {
-                    Info.Message("Blender Plugin", $"Could not find Blender binary inside {inputPath}.\nExpected: {binaryPath}", InfoBarSeverity.Error, autoClose: false);
-                    return;
+                    bundlePath = output.Trim();
                 }
-                blenderPath = binaryPath;
             }
-            else
+            catch
             {
-                blenderPath = inputPath;
+                // osascript missing or blocked — bail; user can retry.
+            }
+
+            if (string.IsNullOrEmpty(bundlePath)) return;
+
+            bundlePath = bundlePath.TrimEnd('/');
+            blenderPath = Path.Combine(bundlePath, "Contents", "MacOS", "Blender");
+            if (!File.Exists(blenderPath))
+            {
+                Info.Message("Blender Plugin",
+                    $"Could not find the Blender binary inside {bundlePath}.\nExpected: {blenderPath}",
+                    InfoBarSeverity.Error, autoClose: false);
+                return;
             }
         }
         else
