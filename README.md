@@ -56,6 +56,23 @@ Or go to:
 
 ---
 
+## Known Issues
+
+> [!WARNING]
+> **Some skins don't fully port with the IK (Tasty) Rig.**
+>
+> The IK / Tasty Rig is built around the standard humanoid Fortnite skeleton. Outfits with non-standard skeletons — many creature outfits (e.g. Beef Boss, Tomatohead, llamas), oversized props, and certain seasonal mascots — either fall back to a partial rig or render without the IK controls entirely. The mesh, materials, and animations still port correctly; only the IK overlay is affected.
+>
+> If you need a full rig on one of these skins, pick the **Default** rig instead of Tasty in `Export Options → Blender`.
+
+Other macOS-specific quirks:
+
+- **Audio playback** uses macOS's native `afplay` for music previews and `vgmstream-cli` for decoding Bink/Rada audio (the Windows-only `binkadec` / `radadec` binaries don't exist on Mac). Most tracks play fine; a small number of formats may fail silently.
+- **Texture streaming** off-screen costs significant load time on the **Latest (On-Demand)** profile — recommended to disable it in `Installation Settings` if you don't need the highest-res textures.
+- **Online tab** (Chat / Leaderboard) hides automatically when the FortnitePorting backend doesn't report them as available.
+
+---
+
 ## Building from Source
 
 Clone the repository:
