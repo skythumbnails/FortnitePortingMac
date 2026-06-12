@@ -58,11 +58,6 @@ Or go to:
 
 ## Known Issues
 
-> [!NOTE]
-> **IK (Tasty) Rig on non-standard skeletons.**
->
-> As of v4.1.5 the Tasty Rig no longer fails or crashes the port on unusual skeletons. The IK Rig is built around the standard humanoid Fortnite skeleton — outfits that deviate from it (some creature outfits, oversized props, seasonal mascots) now import with the **Default** rig instead and show a message explaining why. The mesh, materials, and animations always port correctly.
->
 > On bleeding-edge Blender builds (5.2 alpha+), the "vertex crunch" styling inputs use their default values until Blender exposes a writable geometry-nodes input API — purely cosmetic, noted in the Blender console.
 
 Other macOS-specific quirks:
