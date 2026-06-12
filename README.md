@@ -58,12 +58,12 @@ Or go to:
 
 ## Known Issues
 
-> [!WARNING]
-> **Some skins don't fully port with the IK (Tasty) Rig.**
+> [!NOTE]
+> **IK (Tasty) Rig on non-standard skeletons.**
 >
-> The IK / Tasty Rig is built around the standard humanoid Fortnite skeleton. Outfits with non-standard skeletons — many creature outfits (e.g. Beef Boss, Tomatohead, llamas), oversized props, and certain seasonal mascots — either fall back to a partial rig or render without the IK controls entirely. The mesh, materials, and animations still port correctly; only the IK overlay is affected.
+> As of v4.1.5 the Tasty Rig no longer fails or crashes the port on unusual skeletons. The IK Rig is built around the standard humanoid Fortnite skeleton — outfits that deviate from it (some creature outfits, oversized props, seasonal mascots) now import with the **Default** rig instead and show a message explaining why. The mesh, materials, and animations always port correctly.
 >
-> If you need a full rig on one of these skins, pick the **Default** rig instead of Tasty in `Export Options → Blender`.
+> On bleeding-edge Blender builds (5.2 alpha+), the "vertex crunch" styling inputs use their default values until Blender exposes a writable geometry-nodes input API — purely cosmetic, noted in the Blender console.
 
 Other macOS-specific quirks:
 
