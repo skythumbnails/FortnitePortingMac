@@ -10,26 +10,33 @@ public class DependencyService : IService
 {
     public bool FinishedEnsuring;
     
-    public readonly FileInfo BinkaDecoderFile = new(Path.Combine(App.DataFolder.FullName, "binka", "binkadec.exe"));
-    public readonly FileInfo RadaDecoderFile = new(Path.Combine(App.DataFolder.FullName, "rada", "radadec.exe"));
-    public readonly FileInfo NoodleFile = new(Path.Combine(App.DataFolder.FullName, "noodle.dll"));
-    public readonly FileInfo VgmStreamFile = new(Path.Combine(App.DataFolder.FullName, "vgmstream", "vgmstream-cli.exe"));
+    public readonly FileInfo BinkaDecoderFile = new(Path.Combine(App.DataFolder.FullName, "binka", OperatingSystem.IsWindows() ? "binkadec.exe" : "binkadec"));
+    public readonly FileInfo RadaDecoderFile = new(Path.Combine(App.DataFolder.FullName, "rada", OperatingSystem.IsWindows() ? "radadec.exe" : "radadec"));
+    public readonly FileInfo NoodleFile = new(Path.Combine(App.DataFolder.FullName, OperatingSystem.IsWindows() ? "noodle.dll" : "libnoodle.dylib"));
+    public readonly FileInfo VgmStreamFile = new(Path.Combine(App.DataFolder.FullName, "vgmstream", OperatingSystem.IsWindows() ? "vgmstream-cli.exe" : "vgmstream-cli"));
     
     public readonly DirectoryInfo VgmStreamFolder = new(Path.Combine(App.DataFolder.FullName, "vgmstream"));
 
     public void Ensure()
+{
+    TaskService.Run(() =>
     {
-        TaskService.Run(() =>
+        if (OperatingSystem.IsWindows())
         {
             EnsureResource("Assets/Dependencies/noodle.dll", NoodleFile);
             EnsureResource("Assets/Dependencies/binkadec.exe", BinkaDecoderFile);
             EnsureResource("Assets/Dependencies/radadec.exe", RadaDecoderFile);
-            EnsureVgmStream();
-            EnsureBlenderExtensions();
-            EnsureUnrealPlugins();
-            FinishedEnsuring = true;
-        });
-    }
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            EnsureResource("Assets/Dependencies/libnoodle.dylib", NoodleFile);
+        }
+        EnsureVgmStream();
+        EnsureBlenderExtensions();
+        EnsureUnrealPlugins();
+        FinishedEnsuring = true;
+    });
+}
 
     private void EnsureResource(string path, FileInfo targetFile)
     {
@@ -42,21 +49,24 @@ public class DependencyService : IService
     }
 
     private void EnsureVgmStream()
+{
+    if (VgmStreamFile is { Exists: true, Length: > 0 } ) return;
+    
+    VgmStreamFolder.Create();
+    var downloadUrl = OperatingSystem.IsWindows()
+        ? "https://github.com/vgmstream/vgmstream/releases/latest/download/vgmstream-win.zip"
+        : "https://github.com/vgmstream/vgmstream/releases/latest/download/vgmstream-macos.zip";
+    var file = Api.DownloadFile(downloadUrl, VgmStreamFolder);
+    if (!file.Exists || file.Length == 0) return;
+    
+    var zip = ZipFile.Open(file.FullName, ZipArchiveMode.Read);
+    foreach (var zipFile in zip.Entries)
     {
-        if (VgmStreamFile is { Exists: true, Length: > 0 } ) return;
-        
-        VgmStreamFolder.Create();
-        var file = Api.DownloadFile("https://github.com/vgmstream/vgmstream/releases/latest/download/vgmstream-win.zip", VgmStreamFolder);
-        if (!file.Exists || file.Length == 0) return;
-        
-        var zip = ZipFile.Open(file.FullName, ZipArchiveMode.Read);
-        foreach (var zipFile in zip.Entries)
-        {
-            using var zipStream = zipFile.Open();
-            using var fileStream = new FileStream(Path.Combine(VgmStreamFolder.FullName, zipFile.FullName), FileMode.OpenOrCreate, FileAccess.Write);
-            zipStream.CopyTo(fileStream);
-        }
+        using var zipStream = zipFile.Open();
+        using var fileStream = new FileStream(Path.Combine(VgmStreamFolder.FullName, zipFile.FullName), FileMode.OpenOrCreate, FileAccess.Write);
+        zipStream.CopyTo(fileStream);
     }
+}
 
     public void EnsureBlenderExtensions()
     {
