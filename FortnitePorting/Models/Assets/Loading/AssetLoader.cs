@@ -287,16 +287,10 @@ public partial class AssetLoader : ObservableObject
             LoadedAssets++;
         }
         
-        Log.Information("Loader {Type}: {Matched} registry matches, {Created} items created", Type, TotalAssets, AssetBag.Count);
-
         Source.AddOrUpdate(AssetBag);
         AssetBag.Clear();
         LoadedAssets = TotalAssets;
         FinishedLoading = true;
-
-        // The registry rows are only needed while loading; each loader was retaining its full
-        // FAssetData list (name/tag maps for every matched asset) for the app's lifetime.
-        Assets = [];
     }
 
     private async Task LoadAsset(FAssetData data)
@@ -319,15 +313,10 @@ public partial class AssetLoader : ObservableObject
         
         var isHidden = HideNames.Any(name => asset.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) || HidePredicate(this, asset, displayName);
         if (isHidden && !LoadHiddenAssets) return;
-
+        
         var icon = IconHandler(asset) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        // Icon resolution fails for brand-new asset classes whose properties don't fully parse
-        // (e.g. the C7S3 Sprite definitions) when the placeholder texture also isn't available in
-        // the on-demand archive set. Dropping the item here silently emptied whole tabs — create
-        // the item anyway; AssetItem falls back to a blank icon over the rarity card.
-        if (icon is null)
-            Log.Warning("No icon resolved for {Name} ({Type}); showing without icon", asset.Name, Type);
-
+        if (icon is null) return;
+        
         var args = new AssetItemCreationArgs
         {
             Object = asset,
@@ -352,10 +341,8 @@ public partial class AssetLoader : ObservableObject
         var displayName = manualAsset.Name;
             
         var icon = await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(manualAsset.IconPath) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        // Same no-drop policy as LoadAsset(UObject): a missing icon must not hide the asset.
-        if (icon is null)
-            Log.Warning("No icon resolved for manual asset {Name} ({Type}); showing without icon", manualAsset.Name, Type);
-
+        if (icon is null) return;
+        
         var args = new AssetItemCreationArgs
         {
             Object = asset,

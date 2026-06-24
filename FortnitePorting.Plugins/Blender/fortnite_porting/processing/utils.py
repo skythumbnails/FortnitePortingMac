@@ -294,29 +294,11 @@ def clear_children_bone_transforms(skeleton, anim, bone_name):
     bpy.ops.object.mode_set(mode='OBJECT')
 
 def set_geo_nodes_param(geo_node_modifier, name, value):
-    # Geometry-nodes modifier inputs changed API across Blender versions, and a cosmetic node
-    # input (vertex crunch, outlines, ...) must NEVER abort an import — log-and-skip on failure.
-    try:
-        identifier = geo_node_modifier.node_group.interface.items_tree[name].identifier
-    except Exception as e:
-        print(f"[FNPORTING] set_geo_nodes_param: no socket '{name}' ({type(e).__name__}: {e})")
-        return
-
-    # Blender <= 5.1: inputs are plain ID properties on the modifier.
-    try:
+    identifier = geo_node_modifier.node_group.interface.items_tree[name].identifier
+    if bpy.app.version < (5, 2, 0):
         geo_node_modifier[identifier] = value
-        return
-    except TypeError:
-        pass
-
-    # Blender 5.2+ removed idprop-style GN inputs and (as of 5.2 alpha) exposes NO writable
-    # per-modifier input API from Python — the GeometryNodesModifierInterface attributes are
-    # read-only, and writing the underlying group via bl_system_properties_get() plants a
-    # duplicate ID property that trips an assert (IDP_AddToGroup) and HARD-CRASHES Blender the
-    # moment the modifier evaluates. Until Blender lands a writable API, leave the socket at
-    # its node-group default: the import stays correct, only this styling input is skipped.
-    print(f"[FNPORTING] set_geo_nodes_param: skipped '{name}' — this Blender version has no "
-          f"writable geometry-nodes input API; using the node group's default value")
+    else:
+        getattr(geo_node_modifier.properties.inputs, identifier).value = value
     
     
 def get_sequence_editor():

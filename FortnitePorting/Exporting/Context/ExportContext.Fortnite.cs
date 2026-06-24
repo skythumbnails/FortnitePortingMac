@@ -31,8 +31,11 @@ public partial class ExportContext
         var exportPart = Mesh<ExportPart>(skeletalMesh);
         if (exportPart is null) return null;
         
-        exportPart.Type = part.GetOrDefault("CharacterPartType", EFortCustomPartType.Head);
-        exportPart.GenderPermitted = part.GetOrDefault("GenderPermitted", EFortCustomGender.Male);
+        exportPart.Type = part.GetByteEnum<EFortCustomPartType>("CharacterPartType") 
+                          ?? part.GetOrDefault("CharacterPartType", EFortCustomPartType.Head);
+        
+        exportPart.GenderPermitted = part.GetByteEnum<EFortCustomGender>("GenderPermitted")  
+                                     ?? part.GetOrDefault("GenderPermitted", EFortCustomGender.Male);
 
         if (part.TryGetValue(out FStructFallback[] materialOverrides, "MaterialOverrides"))
         {
@@ -120,15 +123,7 @@ public partial class ExportContext
                     var masterSkeletalMesh = masterSkeletalMeshes
                         .Select(index => index.LoadOrDefault<USkeletalMesh>())
                         .FirstOrDefault(mesh => mesh is not null);
-
-                    // Fallback to the default male base skeleton so outfits whose body parts don't
-                    // resolve a MasterSkeletalMesh (creature outfits, on-demand assets that didn't
-                    // stream the part-specific reference, etc.) still carry the metadata the Blender
-                    // Tasty rig builder needs. Without this, create_tasty_rig() gets None and the rig
-                    // silently fails to apply — the "some models don't port as Tasty" symptom.
-                    masterSkeletalMesh ??= UEParse.Provider.SafeLoadPackageObject<USkeletalMesh>(
-                        "/FortniteGame/Content/Characters/Player/Male/Medium/Base/SK_M_MALE_Base_Skeleton");
-
+                    
                     if (masterSkeletalMesh is null) break;
 
                     var meta = new ExportMasterSkeletonMeta

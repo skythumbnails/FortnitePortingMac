@@ -16,6 +16,7 @@ using FortnitePorting.Models.Information;
 using FortnitePorting.ViewModels;
 using FortnitePorting.Views;
 using FortnitePorting.Windows;
+using Microsoft.Win32;
 using RestSharp;
 
 namespace FortnitePorting.Services;
@@ -39,6 +40,7 @@ public class AppService : IService
     public void InitializeDesktop(IClassicDesktopStyleApplicationLifetime desktop)
     {
         Lifetime = desktop;
+        
         Initialize();
     }
 
@@ -131,14 +133,11 @@ public class AppService : IService
 
     private void RegisterUrlScheme()
     {
-        if (OperatingSystem.IsMacOS()) return;
-
-#if WINDOWS
         try
         {
             var applicationPath = Environment.ProcessPath;
 
-            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey($@"Software\Classes\{SCHEME_NAME}");
+            using var key = Registry.CurrentUser.CreateSubKey($@"Software\Classes\{SCHEME_NAME}");
             key.SetValue("", $"URL:{SCHEME_NAME} Protocol");
             key.SetValue("URL Protocol", "");
                 
@@ -149,20 +148,17 @@ public class AppService : IService
         {
             Info.Message("URL Scheme", "Failed to register URL scheme, authentication will not work", InfoBarSeverity.Error, closeTime: 5);
         }
-#endif
     }
-
+    
     public void Launch(string location, bool shellExecute = true)
     {
         Process.Start(new ProcessStartInfo { FileName = location, UseShellExecute = shellExecute });
     }
-
+    
     public void LaunchSelected(string location)
     {
-        if (OperatingSystem.IsWindows())
-            Process.Start("explorer", $"/select, \"{location}\"");
-        else if (OperatingSystem.IsMacOS())
-            Process.Start("open", $"-R \"{location}\"");
+        var argument = "/select, \"" + location +"\"";
+        Process.Start("explorer", argument);
     }
     
     public async Task<string?> BrowseFolderDialog(string startLocation = "")
