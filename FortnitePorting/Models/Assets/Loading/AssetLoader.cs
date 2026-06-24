@@ -301,6 +301,14 @@ public partial class AssetLoader : ObservableObject
         // The registry rows are only needed while loading; each loader was retaining its full
         // FAssetData list (name/tag maps for every matched asset) for the app's lifetime.
         Assets = [];
+
+        // A tab load allocates in one big burst (thousands of package parses + texture decodes) and
+        // then goes idle. Force a compacting collection so the transient garbage — and the large
+        // object heap the texture decoders churn through — is handed back to the OS right now instead
+        // of whenever the GC next decides to. This is what stops the footprint ratcheting up with
+        // every tab the user opens.
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private async Task LoadAsset(FAssetData data)

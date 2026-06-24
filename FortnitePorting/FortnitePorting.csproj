@@ -10,19 +10,32 @@
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
 
-        <!-- Memory tuning for a desktop app. Workstation GC (single heap, returns memory to the OS)
-             instead of any Server-GC behavior, concurrent so the UI stays responsive. -->
+        <!-- Memory tuning. Workstation GC (single heap that returns memory to the OS) and
+             NON-concurrent: background/concurrent GC trades footprint for latency — it leaves more
+             floating garbage and compacts gen2 less, so RSS stays high. A blocking GC fully compacts
+             and decommits, which is what we want here since the priority is memory over a few ms of
+             GC pause during a tab load.
+
+             NOTE: a System.GC.HeapHardLimit was tried (4-4.5 GiB) to hard-cap total RAM at ~5 GB and
+             REMOVED — On-Demand mode legitimately needs ~4.5 GB (it indexes the entire live Fortnite
+             build: ~340 archives + a 537k-asset registry), and any hard limit near 5 GB turns normal
+             transient allocations during a tab load (DynamicData list growth, texture decode) into
+             OutOfMemory crashes. A cap there converts "high memory" into "crash on browse", which is
+             worse. We instead drive the footprint down structurally (below) with no crash risk; for a
+             genuinely smaller footprint, point the app at a local installed archive instead of On-Demand. -->
         <ServerGarbageCollection>false</ServerGarbageCollection>
-        <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+        <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     </PropertyGroup>
 
     <ItemGroup>
         <!-- Aggressively decommit and hand freed segments back to the OS (1=light … 9=aggressive).
-             Without this the .NET heap holds onto memory it has reclaimed internally, so RSS stays
-             high after browsing assets even once the thumbnails are evicted. 7 leans toward low
-             RSS at a small GC-CPU cost — the asset-browsing workload allocates in bursts (tab
-             loads) and then idles, which is exactly the pattern this setting rewards. -->
-        <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="4" Trim="false" />
+             Without this the .NET heap holds memory it has reclaimed internally, so RSS stays high
+             after browsing even once thumbnails are evicted. 9 = maximum: the browsing workload
+             allocates in bursts (tab loads) then idles, exactly the pattern this rewards. -->
+        <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" Trim="false" />
+        <!-- Don't retain decommitted virtual memory — return it to the OS instead of reserving it for
+             future growth. Directly lowers the footprint Activity Monitor reports after a GC. -->
+        <RuntimeHostConfigurationOption Include="System.GC.RetainVM" Value="false" Trim="false" />
     </ItemGroup>
 
     <ItemGroup>
