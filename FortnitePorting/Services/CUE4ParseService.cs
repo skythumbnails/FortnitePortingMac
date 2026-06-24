@@ -15,12 +15,8 @@ using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.AssetRegistry;
 using CUE4Parse.UE4.AssetRegistry.Objects;
 using CUE4Parse.UE4.Assets;
-using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 using CUE4Parse.UE4.Assets.Exports.Engine;
-using CUE4Parse.UE4.Assets.Exports.Material;
-using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
-using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.IO;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.Core.Math;
@@ -142,70 +138,6 @@ public partial class CUE4ParseService : ObservableObject, IService
 
         UpdateStatus(string.Empty);
         FinishedLoading = true;
-
-        // Headless diagnostic for the C7S3 Sprite pipeline (definition → DataList → icon/mesh).
-        // Inert unless FP_SPRITE_DEBUG=1 is set in the environment.
-        if (Environment.GetEnvironmentVariable("FP_SPRITE_DEBUG") is "1")
-            await DebugDumpSprite();
-    }
-
-    private async Task DebugDumpSprite()
-    {
-        try
-        {
-            const string path = "FortniteGame/Plugins/GameFeatures/SpriteLibrary_CH7S3/Content/SpriteDefinitions/DuckSprite/ESD_DuckSprite";
-            var asset = await Provider.SafeLoadPackageObjectAsync(path);
-            if (asset is null)
-            {
-                Log.Information("[SPRITEDBG] definition load FAILED: {Path}", path);
-                return;
-            }
-
-            Log.Information("[SPRITEDBG] loaded {Class} {Name}, {Count} properties", asset.ExportType, asset.Name, asset.Properties.Count);
-            foreach (var property in asset.Properties)
-                Log.Information("[SPRITEDBG]   prop {Name} = {Type}", property.Name.Text, property.Tag?.GenericValue?.GetType().Name ?? "null");
-
-            if (asset.TryGetValue(out FInstancedStruct[] dataList, "DataList"))
-            {
-                Log.Information("[SPRITEDBG] DataList entries: {Count}", dataList.Length);
-                foreach (var entry in dataList)
-                {
-                    Log.Information("[SPRITEDBG]   struct props: [{Props}]",
-                        string.Join(", ", entry.NonConstStruct.Properties.Select(p => p.Name.Text)));
-                }
-            }
-            else
-            {
-                Log.Information("[SPRITEDBG] DataList NOT parseable on this asset");
-            }
-
-            Log.Information("[SPRITEDBG] Icon: {V}", asset.GetDataListItem<UTexture2D>("Icon", "LargeIcon")?.GetPathName() ?? "NULL");
-            Log.Information("[SPRITEDBG] SkeletalMesh: {V}", asset.GetDataListItem<USkeletalMesh>("SkeletalMesh")?.GetPathName() ?? "NULL");
-            Log.Information("[SPRITEDBG] Material: {V}", asset.GetDataListItem<UMaterialInterface>("Material")?.GetPathName() ?? "NULL");
-
-            // Batch: same enumeration as the Sprites tab — how many of the 72 resolve an icon
-            // through the default handler vs the Sprite-specific one?
-            var rows = AssetRegistry.Where(d => d.AssetClass.Text == "ExtractableItemDefinition").ToList();
-            int loaded = 0, defaultIcons = 0, spriteIcons = 0;
-            foreach (var row in rows)
-            {
-                if (await Provider.SafeLoadPackageObjectAsync(row.ObjectPath) is not { } def) continue;
-                loaded++;
-                if (Models.Assets.Loading.AssetLoader.GetIcon(def) is not null) defaultIcons++;
-                else if (AssetLoaderService.SpriteIcon(def) is not null) spriteIcons++;
-            }
-            Log.Information("[SPRITEDBG] batch: {Rows} registry rows, {Loaded} loaded, {Default} default icons, {Sprite} sprite-handler icons, {Missing} missing",
-                rows.Count, loaded, defaultIcons, spriteIcons, loaded - defaultIcons - spriteIcons);
-
-            // Export-side validation: the mesh itself loads (path resolution above proves the
-            // DataList chain); conversion happens in MeshExport at export time.
-            if (asset.GetDataListItem<USkeletalMesh>("SkeletalMesh") is { } duckMesh)
-                Log.Information("[SPRITEDBG] duck mesh LODs: {Lods}", duckMesh.LODModels?.Length ?? -1);
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "[SPRITEDBG] dump failed");
-        }
     }
 
     public void UpdateStatus(string status)
@@ -227,14 +159,6 @@ public partial class CUE4ParseService : ObservableObject, IService
     [LoadingStage("Initializing CUE4Parse", stage: 0, weight: 5)]
     private async Task InitializeProviderSetup()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Detex.dll is Windows-only. Route BC1-BC7 textures through the managed AssetRipper
-            // decoder so cosmetic icons (typically BC7) render without it. ETC formats still need
-            // Detex but aren't used by Fortnite cosmetics on PC.
-            TextureDecoder.UseAssetRipperTextureDecoder = true;
-        }
-
         Provider = AppSettings.Installation.CurrentProfile.FortniteVersion switch
         {
             EFortniteVersion.LatestOnDemand => new HybridFileProvider(new VersionContainer(LATEST_GAME_VERSION)),
@@ -321,34 +245,15 @@ public partial class CUE4ParseService : ObservableObject, IService
     [LoadingStage("Loading Zlib", stage: 4, weight: 1)]
     private async Task InitializeZlib()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // zlib-ng is Windows/Linux only; on macOS we rely on .NET's built-in ZLibStream where supported.
-            return;
-        }
-
         var zlibPath = Path.Combine(App.DataFolder.FullName, ZlibHelper.DLL_NAME);
         if (!File.Exists(zlibPath)) await ZlibHelper.DownloadDllAsync(zlibPath);
-
+        
         await ZlibHelper.InitializeAsync(zlibPath);
     }
     
     [LoadingStage("Loading Detex", stage: 5, weight: 1)]
     private async Task InitializeDetex()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Detex is shipped as a Windows-only DLL. Remove any stale copy a prior run may have
-            // written and skip initialization — only ETC/BPTC textures depend on it.
-            var stalePath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
-            if (File.Exists(stalePath))
-            {
-                try { File.Delete(stalePath); }
-                catch (Exception ex) { Log.Warning(ex, "Could not remove stale {Path}", stalePath); }
-            }
-            return;
-        }
-
         var detexPath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
         if (!File.Exists(detexPath)) await DetexHelper.LoadDllAsync(detexPath);
         DetexHelper.Initialize(detexPath);
@@ -463,10 +368,6 @@ public partial class CUE4ParseService : ObservableObject, IService
     [LoadingStage("Loading Virtual Paths", stage: 9, weight: 15)]
     private async Task LoadVirtualPaths()
     {
-        UpdateStatus(AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestOnDemand 
-            ? "Loading Virtual Paths (This may take a while)" 
-            : "Loading Virtual Paths");
-        
         Provider.LoadVirtualPaths();
         Provider.PostMount();
         

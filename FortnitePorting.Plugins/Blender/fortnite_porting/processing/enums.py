@@ -57,9 +57,6 @@ class EExportType(IntEnum):
     VEHICLE = ExportCategory.GAMEPLAY + 4
     WILDLIFE = ExportCategory.GAMEPLAY + 5
     WEAPON_MOD = ExportCategory.GAMEPLAY + 6
-    # Upstream 4.1.5 shipped this as COSMETIC + 15 (271) while the C# app sends
-    # Gameplay + 7 (775) — the mismatch made every Sprite export fail with
-    # "775 is not a valid EExportType". Must match FortnitePorting/Enums.cs.
     SPRITE = ExportCategory.GAMEPLAY + 7
 
     # FESTIVAL

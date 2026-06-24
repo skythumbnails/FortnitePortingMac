@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -15,7 +14,7 @@ using FortnitePorting.Models.Assets.Custom;
 using FortnitePorting.Models.Assets.Filters;
 using FortnitePorting.Services;
 using FortnitePorting.ViewModels;
-using Serilog;
+using Newtonsoft.Json;
 using BaseAssetItem = FortnitePorting.Models.Assets.Base.BaseAssetItem;
 
 namespace FortnitePorting.Views;
@@ -23,31 +22,6 @@ namespace FortnitePorting.Views;
 public partial class AssetsView : ViewBase<AssetsViewModel>
 {
     private bool _finishedFirstLoad = false;
-    // Tracks assets whose thumbnail decode threw (e.g. NRE in TextureEncoder.ToSkBitmap when the
-    // managed AssetRipper decoder can't produce pixel data for an exotic format on macOS). Without
-    // this we'd re-attempt the same broken decode on every layout pass during scroll.
-    private readonly HashSet<AssetItem> _failedBitmapItems = new();
-
-    // Decoded thumbnails are cached on each AssetItem (IconDisplayImage) and were never released —
-    // browsing thousands of cosmetics accumulated GBs of WriteableBitmaps. Bound the number of
-    // live thumbnails with a most-recently-realized LRU; cold ones get their bitmap dropped and are
-    // re-decoded on demand if scrolled back to. ~300 icons * ~256KB ≈ 75 MB ceiling.
-    private const int MaxLoadedIcons = 300;
-    private readonly LinkedList<AssetItem> _iconLru = new();
-
-    private void TrackIcon(AssetItem item)
-    {
-        _iconLru.Remove(item);
-        _iconLru.AddFirst(item);
-        while (_iconLru.Count > MaxLoadedIcons)
-        {
-            var coldest = _iconLru.Last!.Value;
-            _iconLru.RemoveLast();
-            // Drop the reference; the WriteableBitmap (and its native Skia buffer) is freed by GC.
-            // It re-decodes via OnItemRealized if the user scrolls back to it.
-            coldest.IconDisplayImage = null;
-        }
-    }
     
     public AssetsView()
     {
@@ -74,6 +48,10 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
                 args.Handled = true;
             }
         }, handledEventsToo: true);
+        
+        AssetsListBox.AddHandler(PointerPressedEvent, OnAssetItemPressed, RoutingStrategies.Tunnel);
+        AssetsListBox.AddHandler(PointerMovedEvent, OnAssetItemPointerMoved, RoutingStrategies.Tunnel);
+        AssetsListBox.AddHandler(PointerReleasedEvent, OnAssetItemPointerReleased, RoutingStrategies.Tunnel);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -184,23 +162,9 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
     private void OnItemRealized(object? sender, ItemRealizedEventArgs e)
     {
         if (e.Item is not AssetItem item) return;
-
-        // Mark this item hot (and evict cold thumbnails past the cap). Runs on the UI thread, so
-        // setting IconDisplayImage during eviction is safe.
-        TrackIcon(item);
-
         if (item.IconDisplayImage is not null) return;
-        if (_failedBitmapItems.Contains(item)) return;
-
-        try
-        {
-            item.LoadBitmap();
-        }
-        catch (Exception ex)
-        {
-            _failedBitmapItems.Add(item);
-            Log.Warning(ex, "LoadBitmap failed for an asset; skipping its thumbnail to keep the grid responsive");
-        }
+        
+        item.LoadBitmap();
     }
 
     private void OnStyleBoxPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -211,5 +175,77 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
         
         assetStyleInfo.SelectedStyleIndex = -1;
         assetStyleInfo.SelectedItems.Clear();
+    }
+
+    private PointerPressedEventArgs? _assetDragArgs;
+    private Point _dragStartPosition;
+
+    private void OnAssetItemPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (e.Source is not Control source) return;
+    
+        var item = GetAssetItemFromSource(source);
+        if (item is null) return;
+    
+        _assetDragArgs = e;
+        _dragStartPosition = e.GetPosition(AssetsListBox);
+    }
+
+    private void OnAssetItemPointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (_assetDragArgs is null) return;
+
+        var pos = e.GetPosition(AssetsListBox);
+        if (Math.Abs(pos.X - _dragStartPosition.X) < 8 &&
+            Math.Abs(pos.Y - _dragStartPosition.Y) < 8) return;
+
+        var args = _assetDragArgs;
+        _assetDragArgs = null;
+
+        TaskService.RunDispatcher(async () => await StartDragAsync(args));
+    }
+
+    private void OnAssetItemPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        _assetDragArgs = null;
+    }
+
+    private AssetItem? GetAssetItemFromSource(Control source)
+    {
+        var control = source;
+        while (control is not null)
+        {
+            if (control.DataContext is AssetItem assetItem)
+                return assetItem;
+            control = control.Parent as Control;
+        }
+        return null;
+    }
+    
+    private async Task StartDragAsync(PointerEventArgs e)
+    {
+        var dragDropInfoFile = Path.Combine(App.DataFolder.FullName, "info.fp_drag_drop");
+
+        await File.WriteAllTextAsync(dragDropInfoFile, JsonConvert.SerializeObject(new
+        {
+            Paths = ViewModel.AssetLoader.ActiveLoader!.SelectedAssetInfos
+                .OfType<AssetInfo>()
+                .Select(asset => asset.Asset.CreationData.Object.GetPathName())
+                .ToList()
+        }));
+
+        TaskService.Run(ExportClient.DiscoverAsync);
+
+        var storageFile = await TopLevel.GetTopLevel(this)!
+            .StorageProvider
+            .TryGetFileFromPathAsync(new Uri(dragDropInfoFile));
+        
+        if (storageFile is null) return;
+        
+        var data = new DataObject();
+        data.Set(DataFormats.Files, new[] { storageFile });
+
+        await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy | DragDropEffects.Move);
+         
     }
 }

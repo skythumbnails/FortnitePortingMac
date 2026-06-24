@@ -67,7 +67,7 @@
                 <controls:SettingsItem Title="Fortnite Version"
                                        Description="The version of Fortnite that Fortnite Porting will be loading.">
                     <controls:SettingsItem.Footer>
-                        <ComboBox ItemsSource="{ext:EnumToEnabledItemsSource {x:Type fortnitePorting:EFortniteVersion}}"
+                        <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fortnitePorting:EFortniteVersion}}"
                                   SelectedItem="{Binding FortniteVersion, Converter={StaticResource EnumToRecord}}" />
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>

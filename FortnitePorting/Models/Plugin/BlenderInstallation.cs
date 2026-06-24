@@ -15,14 +15,15 @@ namespace FortnitePorting.Models.Plugin;
 public partial class BlenderInstallation(string blenderExecutablePath) : ObservableObject
 {
     [ObservableProperty] private string _blenderPath = blenderExecutablePath;
-    
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(ExtensionVersionString))] 
+    [JsonIgnore] private bool IsValidInstallation => File.Exists(BlenderPath) && File.Exists(StartupPath);
+
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ExtensionVersionString))]
     [property: JsonIgnore]
     private Version? _extensionVersion = null;
 
     [JsonIgnore]
-    public string ExtensionVersionString => ExtensionVersion is null ? string.Empty : $"v{ExtensionVersion.ToString()}";
-    
+    public string ExtensionVersionString => ExtensionVersion is null ? string.Empty : $"v{ExtensionVersion}";
+
     [ObservableProperty, NotifyPropertyChangedFor(nameof(StatusBrush))]
     [property: JsonIgnore]
     private EPluginStatusType _status = EPluginStatusType.Newest;
@@ -35,77 +36,41 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
         EPluginStatusType.Failed => SolidColorBrush.Parse("#A61717"),
         EPluginStatusType.Modifying => SolidColorBrush.Parse("#6F6F75"),
     };
-    
-    [JsonIgnore]
-    public Version BlenderVersion => GetVersion(BlenderPath);
 
-    private string StartupPath
-    {
-        get
-        {
-            if (OperatingSystem.IsMacOS())
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "Library", "Application Support", "Blender",
-                    BlenderVersion.ToString(2), "scripts", "startup");
-            }
-            // Windows fallback
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Blender Foundation", "Blender",
-                BlenderVersion.ToString(2), "scripts", "startup");
-        }
-    }
-    
-    private string ManifestPath => Path.Combine(StartupPath,
+    [JsonIgnore]
+    public Version? BlenderVersion => TryGetVersion(BlenderPath);
+
+    private string? StartupPath => BlenderVersion is null ? null : Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Blender Foundation",
+        "Blender",
+        BlenderVersion.ToString(2),
+        "scripts",
+        "startup");
+
+    private string? ManifestPath => StartupPath is null ? null : Path.Combine(StartupPath,
         "fortnite_porting",
         "blender_manifest.toml");
-    
+
     public static readonly DirectoryInfo PluginWorkingDirectory = new(Path.Combine(App.PluginsFolder.FullName, "Blender"));
     public static readonly Version MinimumVersion = new(5, 0);
 
     public static Version GetVersion(string blenderPath)
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return new Version(FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion!);
-        }
-
-        // On macOS, read version from the app bundle's Info.plist
-        // Blender path is typically: /Applications/Blender.app/Contents/MacOS/Blender
-        // Info.plist is at:          /Applications/Blender.app/Contents/Info.plist
-        var plistPath = Path.Combine(
-            Path.GetDirectoryName(blenderPath)!, // MacOS/
-            "..", "Info.plist");                 // up to Contents/
-
-        if (File.Exists(plistPath))
-        {
-            var plist = File.ReadAllText(plistPath);
-            var marker = "<key>CFBundleShortVersionString</key>";
-            var idx = plist.IndexOf(marker, StringComparison.Ordinal);
-            if (idx >= 0)
-            {
-                var start = plist.IndexOf("<string>", idx) + "<string>".Length;
-                var end = plist.IndexOf("</string>", start);
-                return new Version(plist.Substring(start, end - start));
-            }
-        }
-
-        throw new Exception($"Could not determine Blender version from path: {blenderPath}");
+        return new Version(FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion!);
     }
 
-    // Non-throwing variant for paths that may have gone stale (Blender moved, renamed, or
-    // uninstalled since it was registered). Callers that iterate registered installations must
-    // use this — a single stale entry would otherwise throw on every launch/sync/add and the
-    // user could never remove it (the "Could not determine Blender version" error-dialog loop).
-    public static Version? TryGetVersion(string blenderPath)
+    public static Version? TryGetVersion(string? blenderPath)
     {
+        if (string.IsNullOrWhiteSpace(blenderPath) || !File.Exists(blenderPath))
+            return null;
+
         try
         {
-            return GetVersion(blenderPath);
+            var productVersion = FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion;
+            return productVersion is not null ? new Version(productVersion) : null;
         }
-        catch
+        catch (Exception)
         {
             return null;
         }
@@ -115,18 +80,17 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
     {
         if (!File.Exists(BlenderPath))
         {
-            Info.Message("Blender Extension", $"Blender installation does not exist at path {BlenderPath}.");
             Status = EPluginStatusType.Failed;
             return false;
         }
-        
-        if (!File.Exists(ManifestPath))
+
+        if (ManifestPath is null || !File.Exists(ManifestPath))
         {
-            Info.Message("Blender Extension", $"Plugin manifest does not exist at path {ManifestPath}, installation may have gone wrong.\nPlease remove the installation from Fortnite Porting and try again.");
+            Info.Message("Blender Extension", $"Plugin manifest does not exist at path {ManifestPath ?? "(unknown)"}, installation may have gone wrong.\nPlease remove the installation from Fortnite Porting and try again.");
             Status = EPluginStatusType.Failed;
             return false;
         }
-        
+
         var manifestContents = File.ReadAllText(ManifestPath);
         var manifestToml = Toml.ToModel(manifestContents);
         ExtensionVersion = new Version((string) manifestToml["version"]);
@@ -135,41 +99,34 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
         Status = fpExtensionVersion.Equals(Globals.Version)
             ? EPluginStatusType.Newest
             : EPluginStatusType.UpdateAvailable;
-        
+
         return true;
     }
-    
+
     public void Install(bool verbose = true)
     {
-        Status = EPluginStatusType.Modifying;
-
-        var destination = Path.Combine(StartupPath, "fortnite_porting");
-        MiscExtensions.Copy(Path.Combine(PluginWorkingDirectory.FullName, "fortnite_porting"), destination);
-
-        // Wipe Python's compiled-bytecode cache for the plugin. MiscExtensions.Copy can preserve
-        // the source files' mtimes, which means Python's stale-pyc detection (mtime comparison)
-        // would happily reuse a .pyc compiled against the OLD plugin — causing puzzling
-        // "X is not a valid EExportType" errors when newer enum members are emitted by FP. Forcing
-        // recompilation by deleting __pycache__ folders eliminates that whole failure mode.
-        if (Directory.Exists(destination))
+        if (StartupPath is null)
         {
-            foreach (var pycache in Directory.EnumerateDirectories(destination, "__pycache__", SearchOption.AllDirectories).ToArray())
-            {
-                try { Directory.Delete(pycache, recursive: true); } catch { /* best-effort */ }
-            }
+            if (verbose)
+                Info.Message("Plugin Installation Failed",
+                    "Could not determine Blender version from the provided path. Please check your Blender installation.");
+            Status = EPluginStatusType.Failed;
+            return;
         }
 
-        var didSyncProperly = SyncExtensionVersion();
-        if (verbose)
-        {
-            if (!didSyncProperly)
-            {
-                Info.Message("Plugin Installation Failed", 
-                    "Failed to install the plugin, please install it manually by dragging and dropping the Fortnite Porting plugin in Blender.", 
-                    useButton: true, buttonTitle: "Open Plugins Folder", buttonCommand: () => App.Launch(App.PluginsFolder.FullName));
+        Status = EPluginStatusType.Modifying;
 
-                Status = EPluginStatusType.Failed;
-            }
+        MiscExtensions.Copy(Path.Combine(PluginWorkingDirectory.FullName, "fortnite_porting"), Path.Combine(StartupPath, "fortnite_porting"));
+
+        var didSyncProperly = SyncExtensionVersion();
+        if (verbose && !didSyncProperly)
+        {
+            Info.Message("Plugin Installation Failed",
+                "Failed to install the plugin, please install it manually by dragging and dropping the Fortnite Porting plugin in Blender.",
+                useButton: true, buttonTitle: "Open Plugins Folder", buttonCommand: () => App.Launch(App.PluginsFolder.FullName));
+
+            Status = EPluginStatusType.Failed;
+            return;
         }
 
         Status = EPluginStatusType.Newest;
@@ -177,23 +134,12 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
 
     public void Uninstall()
     {
+        if (StartupPath is null) return;
+
         Status = EPluginStatusType.Modifying;
 
-        // Best-effort cleanup. StartupPath derives the version from the Blender app bundle, so if
-        // Blender was moved or deleted this used to throw — which meant a stale installation could
-        // never be removed from the list and the error dialog reappeared on every launch. If the
-        // version (and therefore the startup folder) can't be resolved, there's nothing of ours
-        // left to delete anyway.
-        try
-        {
-            var startupPlugin = Path.Combine(StartupPath, "fortnite_porting");
-            if (Directory.Exists(startupPlugin))
-                Directory.Delete(startupPlugin, true);
-        }
-        catch
-        {
-            // Blender gone or its version unreadable — skip cleanup, let the entry be removed.
-        }
+        if (IsValidInstallation)
+            Directory.Delete(Path.Combine(StartupPath, "fortnite_porting"), true);
     }
 
     public async Task Launch()

@@ -32,7 +32,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <Grid x:Name="SidebarHeader" Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
+                        <Grid Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 2}" />
@@ -84,11 +84,10 @@
 
                         <sidebar:SidebarItemSeparator />
 
-                        <sidebar:SidebarItemText Text="ONLINE"
-                                                 IsVisible="{Binding OnlineSectionVisible}" />
+                        <sidebar:SidebarItemText Text="ONLINE" />
                         <sidebar:SidebarItemButton Text="Chat" Icon="Message" Tag="{x:Type views:ChatView}"
                                                    IsEnabled="{Binding SupaBase.IsLoggedIn}"
-                                                   IsVisible="{Binding OnlineStatus.Chat.Enabled}"
+                                                   IsVisible="{Binding OnlineStatus.Chat.Enabled}" 
                                                    NotificationCount="{Binding Chat.UnseenMessageCount}"/>
                         <sidebar:SidebarItemButton Text="Leaderboard" Icon="Trophy"
                                                    Tag="{x:Type views:LeaderboardView}"
@@ -433,7 +432,7 @@
                                  Grid.RowSpan="2" />
 
         <Grid Grid.Row="0" HorizontalAlignment="Stretch" PointerPressed="OnPointerPressedUpperBar">
-            <Grid x:Name="WindowsChromeButtons" HorizontalAlignment="Right">
+            <Grid HorizontalAlignment="Right">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="{ext:Space 0.5}" />

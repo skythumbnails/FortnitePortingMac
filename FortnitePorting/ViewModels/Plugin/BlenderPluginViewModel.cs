@@ -1,16 +1,11 @@
-using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Avalonia.Controls;
-using Avalonia.Layout;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FluentAvalonia.UI.Controls;
 using FortnitePorting.Framework;
-using FortnitePorting.Models.Information;
 using FortnitePorting.Models.Plugin;
 using FortnitePorting.Services;
 using Newtonsoft.Json;
@@ -32,7 +27,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
         foreach (var installation in Installations.ToArray())
         {
             if (installation.SyncExtensionVersion()) continue;
-            
+
             installation.Uninstall();
             Installations.Remove(installation);
         }
@@ -40,99 +35,34 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     public async Task AddInstallation()
     {
-        string blenderPath;
+        if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } blenderPath) return;
 
-        if (OperatingSystem.IsMacOS())
+        var blenderVersion = BlenderInstallation.TryGetVersion(blenderPath);
+        if (blenderVersion is null)
         {
-            // Avalonia's StorageProvider doesn't make .app bundles selectable in its file picker
-            // on macOS, even with AppleUniformTypeIdentifiers set — the panel ends up showing
-            // bundles greyed out and only folders selectable. Shell out to AppleScript instead;
-            // its `choose file of type` dialog goes straight through AppKit and treats .app
-            // bundles as picks the same way Finder does.
-            string? bundlePath = null;
-            try
-            {
-                using var process = new Process();
-                process.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/usr/bin/osascript",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                process.StartInfo.ArgumentList.Add("-e");
-                process.StartInfo.ArgumentList.Add(
-                    "POSIX path of (choose file of type {\"com.apple.application-bundle\"} " +
-                    "default location (POSIX file \"/Applications\") " +
-                    "with prompt \"Select Blender.app\")");
-                process.Start();
-                var output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                if (process.ExitCode == 0)
-                {
-                    bundlePath = output.Trim();
-                }
-            }
-            catch
-            {
-                // osascript missing or blocked — bail; user can retry.
-            }
-
-            if (string.IsNullOrEmpty(bundlePath)) return;
-
-            bundlePath = bundlePath.TrimEnd('/');
-            blenderPath = Path.Combine(bundlePath, "Contents", "MacOS", "Blender");
-            if (!File.Exists(blenderPath))
-            {
-                Info.Message("Blender Plugin",
-                    $"Could not find the Blender binary inside {bundlePath}.\nExpected: {blenderPath}",
-                    InfoBarSeverity.Error, autoClose: false);
-                return;
-            }
-        }
-        else
-        {
-            if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } filePath) return;
-            blenderPath = filePath;
-        }
-
-        Version blenderVersion;
-        try
-        {
-            blenderVersion = BlenderInstallation.GetVersion(blenderPath);
-        }
-        catch (Exception)
-        {
-            // Surface a friendly message instead of the unhandled-exception dialog (e.g. when the
-            // selected bundle has no readable Info.plist version).
-            Info.Message("Blender Plugin",
-                $"Could not determine the Blender version for:\n{blenderPath}\n\nMake sure this is a valid Blender installation and try again.",
-                InfoBarSeverity.Error, autoClose: false);
+            Info.Message("Blender Extension", "Could not determine the Blender version from the selected file. Please check your Blender installation.", InfoBarSeverity.Error, autoClose: false);
             return;
         }
 
-        // TryGetVersion: one stale registered installation (Blender moved/uninstalled) must not
-        // crash adding a new one — its version getter would throw.
-        if (Installations.Any(existing => BlenderInstallation.TryGetVersion(existing.BlenderPath) == blenderVersion))
+        if (Installations.Any(existing => existing.BlenderVersion == blenderVersion))
         {
             Info.Message("Blender Extension", $"The plugin for Blender {blenderVersion} has already been installed.", InfoBarSeverity.Warning);
             return;
         }
-        
+
         if (blenderVersion < BlenderInstallation.MinimumVersion)
         {
-            Info.Message("Blender Plugin", 
-                $"Blender {blenderVersion} is too low of a version. Only Blender versions {BlenderInstallation.MinimumVersion} and higher are supported.", 
+            Info.Message("Blender Plugin",
+                $"Blender {blenderVersion} is too low of a version. Only Blender versions {BlenderInstallation.MinimumVersion} and higher are supported.",
                 InfoBarSeverity.Error, autoClose: false);
             return;
         }
-        
+
         if (TryGetBlenderProcess(blenderPath, out var blenderProcess))
         {
-            Info.Message("Failed to Add Blender Installation", 
-                $"This version of blender is currently open. Please close it and re-add the installation.", 
-                InfoBarSeverity.Error, autoClose: false, 
+            Info.Message("Failed to Add Blender Installation",
+                $"This version of Blender is currently open. Please close it and re-add the installation.",
+                InfoBarSeverity.Error, autoClose: false,
                 useButton: true, buttonTitle: "Kill Blender Process", buttonCommand: () =>
                 {
                     blenderProcess.Kill(entireProcessTree: true);
@@ -141,6 +71,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
         }
 
         var installation = new BlenderInstallation(blenderPath);
+
         Installations.Add(installation);
 
         await TaskService.RunAsync(() =>
@@ -160,6 +91,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
         TaskService.Run(() =>
         {
             installation.Uninstall();
+
             Installations.Remove(installation);
         });
     }
@@ -168,35 +100,35 @@ public partial class BlenderPluginViewModel : ViewModelBase
     {
         await SyncInstallations(true);
     }
-    
+
     public async Task SyncInstallations(bool verbose)
     {
         var currentVersion = Globals.Version.ToVersion();
         foreach (var installation in Installations)
         {
-            // A stale entry (Blender moved/uninstalled) can't be synced: Install() resolves the
-            // startup folder from the app bundle's version and would throw. Skip it instead of
-            // erroring on every sync — the user can remove it from the list.
-            if (BlenderInstallation.TryGetVersion(installation.BlenderPath) is null)
+            installation.SyncExtensionVersion();
+
+            if (installation.BlenderVersion is null)
             {
                 if (verbose)
                 {
                     Info.Message("Blender Extension",
-                        $"Skipped syncing {installation.BlenderPath} because the Blender installation could not be found. Remove it from the list if it no longer exists.",
-                        InfoBarSeverity.Warning);
+                        $"Could not determine Blender version for installation at {installation.BlenderPath}. Skipping.",
+                        InfoBarSeverity.Error, autoClose: false);
                 }
+
                 continue;
             }
 
-            installation.SyncExtensionVersion();
             if (TryGetBlenderProcess(installation.BlenderPath, out var blenderProcess))
             {
                 if (verbose)
                 {
-                    Info.Message("Blender Extension", 
-                        $"Blender {installation.BlenderVersion} is currently open. Please close it and re-sync the installation.\nPath: {installation.BlenderPath}\nPID: {blenderProcess.Id}", 
+                    Info.Message("Blender Extension",
+                        $"Blender {installation.BlenderVersion} is currently open. Please close it and re-sync the installation.\nPath: {installation.BlenderPath}\nPID: {blenderProcess.Id}",
                         InfoBarSeverity.Error, autoClose: false);
                 }
+
                 continue;
             }
 
@@ -206,7 +138,9 @@ public partial class BlenderPluginViewModel : ViewModelBase
                 {
                     Info.Message("Blender Extension", $"Blender {installation.BlenderVersion} is already up to date, syncing anyways.");
                 }
+
                 installation.Install(verbose);
+
                 continue;
             }
 
@@ -223,8 +157,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
     private static bool TryGetBlenderProcess(string path, [MaybeNullWhen(false)] out Process process)
     {
         var blenderProcesses = Process.GetProcessesByName("blender");
-        var normalizedPath = OperatingSystem.IsWindows() ? path.Replace("/", "\\") : path;
-        process = blenderProcesses.FirstOrDefault(process => process.MainModule is { } mainModule && mainModule.FileName.Equals(normalizedPath));
+        process = blenderProcesses.FirstOrDefault(process => process.MainModule is { } mainModule && mainModule.FileName.Equals(path.Replace("/", "\\")));
         return process is not null;
     }
 }

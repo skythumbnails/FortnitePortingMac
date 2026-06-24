@@ -8,21 +8,15 @@ namespace FortnitePorting;
 
 public enum EFortniteVersion
 {
-    // Disabled on macOS: requires a local Fortnite install at Windows-style paths and the
-    // texture-streaming/bundle-loading machinery that only works against an installed build.
     [Description("Latest (Installed)")]
-    [Disabled]
     LatestInstalled,
-
+    
     [Description("Latest (On-Demand)")]
     LatestOnDemand,
-
-    // Disabled on macOS for now: Custom archive directories work in theory, but require all of
-    // the same Windows-side helpers (Detex, zlib-ng) that aren't shipped to this build.
+    
     [Description("Custom")]
-    [Disabled]
     Custom
-
+    
 }
 
 public enum EExportLocation

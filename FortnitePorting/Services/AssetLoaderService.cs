@@ -405,11 +405,6 @@ public partial class AssetLoaderService : ObservableObject, IService
                 {
                     ClassNames = ["ExtractableItemDefinition"],
                     LoadHiddenAssets = true,
-                    // ExtractableItemDefinition doesn't expose its icon through the standard
-                    // Icon/PreviewImage properties the default handler checks (all 72 sprites
-                    // logged "No icon resolved"). Resolve by scanning the definition — and its
-                    // parent definition for variants — for any referenced texture.
-                    IconHandler = SpriteIcon,
                     HidePredicate = (loader, asset, name) =>
                     {
                         var parentDef = asset.GetOrDefault<FSoftObjectPath?>("ParentExtractableDefinition");
@@ -534,6 +529,9 @@ public partial class AssetLoaderService : ObservableObject, IService
     
     public AssetLoader Get(EExportType type)
     {
+        if (!Enum.IsDefined(type))
+            type = EExportType.Outfit;
+        
         return Categories.SelectMany(cat => cat.Loaders).FirstOrDefault(loader => loader.Type == type) 
                ?? throw new ArgumentOutOfRangeException(nameof(type), $"Asset type {type.Description} does not have an implemented loader.");
     }
@@ -544,46 +542,5 @@ public partial class AssetLoaderService : ObservableObject, IService
         ActiveLoader = Get(type);
         ActiveCollection = ActiveLoader.Filtered;
         ActiveLoader.UpdateFilterVisibility();
-    }
-
-    // Icon resolution for the C7S3 Sprite definitions (ExtractableItemDefinition), whose icon
-    // isn't exposed via the standard Icon/PreviewImage properties: try the default handler,
-    // then any texture referenced by the definition's own properties, then the same two steps
-    // on the parent definition (variants typically inherit their display data from it).
-    public static UTexture2D? SpriteIcon(UObject asset)
-    {
-        if (AssetLoader.GetIcon(asset) is { } direct) return direct;
-        if (FindTextureInProperties(asset) is { } own) return own;
-
-        if (asset.GetOrDefault<FSoftObjectPath?>("ParentExtractableDefinition") is { } parentPath
-            && parentPath.TryLoad(out var parent))
-        {
-            if (AssetLoader.GetIcon(parent) is { } parentIcon) return parentIcon;
-            if (FindTextureInProperties(parent) is { } parentTexture) return parentTexture;
-        }
-
-        return null;
-    }
-
-    private static UTexture2D? FindTextureInProperties(UObject asset)
-    {
-        foreach (var property in asset.Properties)
-        {
-            try
-            {
-                if (property.Tag?.GetValue<FPackageIndex>()?.Load() is UTexture2D objectTexture)
-                    return objectTexture;
-
-                if (property.Tag?.GetValue<FSoftObjectPath>() is { } softPath
-                    && softPath.TryLoad(out var softObject) && softObject is UTexture2D softTexture)
-                    return softTexture;
-            }
-            catch
-            {
-                // keep scanning — a single unresolvable reference shouldn't cost us the icon
-            }
-        }
-
-        return null;
     }
 }

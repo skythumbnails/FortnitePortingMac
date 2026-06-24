@@ -1,29 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
+        <OutputType>WinExe</OutputType>
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+        <ApplicationManifest>Application/app.manifest</ApplicationManifest>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
         <ApplicationIcon>Assets/LogoRebrand.ico</ApplicationIcon>
-        <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-
-        <!-- Memory tuning for a desktop app. Workstation GC (single heap, returns memory to the OS)
-             instead of any Server-GC behavior, concurrent so the UI stays responsive. -->
-        <ServerGarbageCollection>false</ServerGarbageCollection>
-        <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
     </PropertyGroup>
-
-    <ItemGroup>
-        <!-- Aggressively decommit and hand freed segments back to the OS (1=light … 9=aggressive).
-             Without this the .NET heap holds onto memory it has reclaimed internally, so RSS stays
-             high after browsing assets even once the thumbnails are evicted. 7 leans toward low
-             RSS at a small GC-CPU cost — the asset-browsing workload allocates in bursts (tab
-             loads) and then idles, which is exactly the pattern this setting rewards. -->
-        <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" Trim="false" />
-    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Avalonia" />
@@ -44,6 +31,8 @@
         <PackageReference Include="Microsoft.AspNetCore.DataProtection" />
         <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+        <PackageReference Include="NAudio" />
+        <PackageReference Include="NAudio.Vorbis" />
         <PackageReference Include="NodifyAvalonia" />
         <PackageReference Include="ReactiveUI" />
         <PackageReference Include="RestSharp" />
