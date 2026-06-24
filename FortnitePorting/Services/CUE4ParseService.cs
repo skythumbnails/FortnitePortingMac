@@ -15,6 +15,7 @@ using CUE4Parse.MappingsProvider;
 using CUE4Parse.UE4.AssetRegistry;
 using CUE4Parse.UE4.AssetRegistry.Objects;
 using CUE4Parse.UE4.Assets;
+using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 using CUE4Parse.UE4.Assets.Exports.Engine;
 using CUE4Parse.UE4.IO;
@@ -54,6 +55,14 @@ public partial class CUE4ParseService : ObservableObject, IService
     public FBuildPatchAppManifest? LiveManifest;
     
     public readonly List<FAssetData> AssetRegistry = [];
+
+    // FAssetData ships a per-asset TagsAndValues dictionary (display names, descriptions, gameplay
+    // tags — all strings) plus bundle data. For a full Fortnite build that is hundreds of thousands
+    // of dictionaries, multiple GB of managed heap that lives for the app's entire lifetime. We only
+    // ever read the AssetClass / AssetName / PackageName FName fields, so the tag maps are pure waste.
+    // Swap each entry's tags for this one shared empty map after parsing so the dictionaries can be
+    // collected immediately (shared, not null, so any incidental read can't NRE).
+    private static readonly Dictionary<FName, string> EmptyTags = new(0);
     public readonly List<FRarityCollection> RarityColors = [];
     public readonly Dictionary<int, FColor> BeanstalkColors = [];
     public readonly Dictionary<int, FLinearColor> BeanstalkMaterialProps = [];
@@ -535,8 +544,15 @@ public partial class CUE4ParseService : ObservableObject, IService
             try
             {
                 var assetRegistry = new FAssetRegistryState(assetArchive);
-                AssetRegistry.AddRange(assetRegistry.PreallocatedAssetDataBuffers);
-                Log.Information("Loaded Asset Registry: {FilePath}", file.Path);
+                var buffers = assetRegistry.PreallocatedAssetDataBuffers;
+                // Drop the heavy per-asset tag/bundle data we never read before retaining the rows.
+                foreach (var data in buffers)
+                {
+                    data.TagsAndValues = EmptyTags;
+                    data.TaggedAssetBundles = null;
+                }
+                AssetRegistry.AddRange(buffers);
+                Log.Information("Loaded Asset Registry: {FilePath} ({Count} assets)", file.Path, buffers.Length);
             }
             catch (Exception e)
             {
