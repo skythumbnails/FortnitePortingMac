@@ -24,7 +24,10 @@ public partial class InstallationProfile : ObservableValidator
     [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
     [NotifyPropertyChangedFor(nameof(LoadInstalledBundlesEnabled))]
     [NotifyPropertyChangedFor(nameof(IsCustom))]
-    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestInstalled;
+    // macOS default: On-Demand (no local Fortnite install required to get started). Users can
+    // switch a profile to "Latest (Installed)" and point at a local Paks folder to use their
+    // own game data instead.
+    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestOnDemand;
     
     [NotifyDataErrorInfo]
     [ArchiveDirectory(canValidateProperty: nameof(ArchiveDirectoryEnabled))]
@@ -134,7 +137,12 @@ public partial class InstallationProfile : ObservableValidator
     
     public async Task RemoveEncryptionKey()
     {
+        // Guard the bounds: with no key selected (index -1) or an empty list, RemoveAt throws
+        // ArgumentOutOfRangeException, which surfaced as an unobserved-task FATAL in the logs.
         var selectedIndexToRemove = SelectedExtraKeyIndex;
+        if (selectedIndexToRemove < 0 || selectedIndexToRemove >= ExtraKeys.Count)
+            return;
+
         ExtraKeys.RemoveAt(selectedIndexToRemove);
         SelectedExtraKeyIndex = selectedIndexToRemove == 0 ? 0 : selectedIndexToRemove - 1;
     }

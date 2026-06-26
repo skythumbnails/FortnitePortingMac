@@ -41,8 +41,15 @@ public partial class AppWindowModel(
     
     [ObservableProperty] private RepositoryVersion? _updateVersion;
 
-    [ObservableProperty] private OnlineResponse? _onlineStatus;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(OnlineSectionVisible))]
+    private OnlineResponse? _onlineStatus;
     [ObservableProperty] private BroadcastResponse[] _broadcasts = [];
+
+    // True when the FortnitePorting backend reports that at least one of Chat or Leaderboard is
+    // available. While the API hasn't responded yet (OnlineStatus null), or both features are
+    // disabled, the sidebar's whole ONLINE section (header + Chat + Leaderboard) collapses.
+    public bool OnlineSectionVisible =>
+        OnlineStatus is not null && (OnlineStatus.Chat.Enabled || OnlineStatus.Leaderboard.Enabled);
 
     private const string PORTLE_URL = "https://cdn.fortniteporting.app/portle/Portle.exe";
 
