@@ -100,16 +100,6 @@ internal static class Program
     private static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<FortnitePortingApp>()
             .UsePlatformDetect()
-            // macOS 26 (Tahoe) made the legacy OpenGL path very slow, and Avalonia falls back to
-            // CPU/software rendering when GL init struggles — choppy UI + pegged cores. Prefer Metal.
-            .With(new AvaloniaNativePlatformOptions
-            {
-                RenderingMode = new[]
-                {
-                    AvaloniaNativeRenderingMode.Metal,
-                    AvaloniaNativeRenderingMode.OpenGl,
-                    AvaloniaNativeRenderingMode.Software
-                }
-            })
-            .LogToTrace();
+            .LogToTrace()
+            .With(new Win32PlatformOptions { CompositionMode = [Win32CompositionMode.WinUIComposition] });
 }

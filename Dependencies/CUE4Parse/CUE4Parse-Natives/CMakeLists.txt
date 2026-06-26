@@ -3,10 +3,6 @@ project(CUE4Parse-Natives CXX)
 
 set(CMAKE_CXX_STANDARD 11)
 
-if (APPLE)
-    # AppleClang 17+ treats ACL's `.template` disambiguator usage as a hard error by default.
-    add_compile_options(-Wno-missing-template-arg-list-after-template-kw)
-endif()
 
 if (EXISTS "${PROJECT_SOURCE_DIR}/ACL/external/acl/includes")
     set(WITH_ACL 1)
