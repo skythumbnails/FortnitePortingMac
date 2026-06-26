@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
@@ -16,7 +15,6 @@ using FortnitePorting.Models.Assets.Filters;
 using FortnitePorting.Services;
 using FortnitePorting.ViewModels;
 using Newtonsoft.Json;
-using Serilog;
 using BaseAssetItem = FortnitePorting.Models.Assets.Base.BaseAssetItem;
 
 namespace FortnitePorting.Views;
@@ -24,27 +22,6 @@ namespace FortnitePorting.Views;
 public partial class AssetsView : ViewBase<AssetsViewModel>
 {
     private bool _finishedFirstLoad = false;
-
-    // Thumbnails decode to WriteableBitmaps cached on each AssetItem and were never released —
-    // browsing thousands of cosmetics accumulated GBs. Bound the live count with a most-recently-
-    // realized LRU; cold thumbnails are dropped (re-decoded on demand if scrolled back to).
-    private const int MaxLoadedIcons = 300;
-    private readonly LinkedList<AssetItem> _iconLru = new();
-    // Assets whose thumbnail decode threw (managed AssetRipper decoder can't produce pixel data
-    // for an exotic format) — skip retrying so one bad icon can't crash the grid on every layout.
-    private readonly HashSet<AssetItem> _failedBitmapItems = new();
-
-    private void TrackIcon(AssetItem item)
-    {
-        _iconLru.Remove(item);
-        _iconLru.AddFirst(item);
-        while (_iconLru.Count > MaxLoadedIcons)
-        {
-            var coldest = _iconLru.Last!.Value;
-            _iconLru.RemoveLast();
-            coldest.IconDisplayImage = null;
-        }
-    }
     
     public AssetsView()
     {
@@ -185,23 +162,9 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
     private void OnItemRealized(object? sender, ItemRealizedEventArgs e)
     {
         if (e.Item is not AssetItem item) return;
-
-        // Keep this item hot in the LRU (and evict cold thumbnails past the cap). Runs on the UI
-        // thread, so setting IconDisplayImage during eviction is safe.
-        TrackIcon(item);
-
         if (item.IconDisplayImage is not null) return;
-        if (_failedBitmapItems.Contains(item)) return;
-
-        try
-        {
-            item.LoadBitmap();
-        }
-        catch (Exception ex)
-        {
-            _failedBitmapItems.Add(item);
-            Log.Warning(ex, "LoadBitmap failed for an asset; skipping its thumbnail to keep the grid responsive");
-        }
+        
+        item.LoadBitmap();
     }
 
     private void OnStyleBoxPointerPressed(object? sender, PointerPressedEventArgs e)

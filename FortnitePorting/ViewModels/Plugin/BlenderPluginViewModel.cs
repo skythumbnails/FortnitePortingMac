@@ -35,61 +35,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     public async Task AddInstallation()
     {
-        string blenderPath;
-
-        if (OperatingSystem.IsMacOS())
-        {
-            // Avalonia's StorageProvider greys out .app bundles on macOS (even with the bundle UTI
-            // set on the file type), so the user can't select Blender.app. Shell out to AppleScript,
-            // whose `choose file of type` dialog treats .app bundles as selectable the way Finder
-            // does, then descend into the bundle to the actual executable.
-            string? bundlePath = null;
-            try
-            {
-                using var process = new Process();
-                process.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/usr/bin/osascript",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                process.StartInfo.ArgumentList.Add("-e");
-                process.StartInfo.ArgumentList.Add(
-                    "POSIX path of (choose file of type {\"com.apple.application-bundle\"} " +
-                    "default location (POSIX file \"/Applications\") " +
-                    "with prompt \"Select Blender.app\")");
-                process.Start();
-                var output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                if (process.ExitCode == 0) bundlePath = output.Trim();
-            }
-            catch
-            {
-                // osascript missing/blocked — user can retry.
-            }
-
-            if (string.IsNullOrEmpty(bundlePath)) return;
-
-            bundlePath = bundlePath.TrimEnd('/');
-            blenderPath = bundlePath.EndsWith(".app", System.StringComparison.OrdinalIgnoreCase)
-                ? System.IO.Path.Combine(bundlePath, "Contents", "MacOS", "Blender")
-                : bundlePath;
-
-            if (!System.IO.File.Exists(blenderPath))
-            {
-                Info.Message("Blender Plugin",
-                    $"Could not find the Blender binary inside {bundlePath}.\nExpected: {blenderPath}",
-                    InfoBarSeverity.Error, autoClose: false);
-                return;
-            }
-        }
-        else
-        {
-            if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } filePath) return;
-            blenderPath = filePath;
-        }
+        if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } blenderPath) return;
 
         var blenderVersion = BlenderInstallation.TryGetVersion(blenderPath);
         if (blenderVersion is null)
