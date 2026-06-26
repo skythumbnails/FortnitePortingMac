@@ -69,7 +69,7 @@ public static class Exporter
         });
     }
     
-    public static async Task<bool> Export(Func<IEnumerable<BaseExport>> exportFunction, ExportDataMeta metaData)
+    public static async Task<bool> Export(Func<IEnumerable<BaseExport>> exportFunction, ExportDataMeta metaData, bool reclaimMemory = true)
     {
         if (metaData.ExportLocation is EExportLocation.CustomFolder && await App.BrowseFolderDialog() is { } path)
         {
@@ -115,14 +115,20 @@ public static class Exporter
             exportedProperly = true;
         });
 
-        // The export is now handed off to Blender. The meshes/textures/materials this export pulled in
-        // (and, under On-Demand, the streamed+decompressed chunk data behind them) are no longer needed
-        // on our side, but they've just spiked the heap. Force a compacting collection so that memory is
-        // returned to the OS NOW — while Blender is busy importing — instead of lingering. The combined
-        // FortnitePorting + Blender footprint during an import is what pushes a Mac into swap and crashes
-        // Blender; releasing our share right here is the single biggest thing that prevents it.
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        // After handing the export off to Blender, the meshes/textures/materials it pulled in (and,
+        // under On-Demand, the streamed+decompressed chunk data behind them) are no longer needed on
+        // our side but have just spiked the heap. A single compacting collection here hands that memory
+        // back to the OS while Blender is importing, so the combined footprint doesn't push the machine
+        // into swap and crash Blender — the main reason single-asset ports were unstable.
+        //
+        // reclaimMemory is false for World/map exports: those run this path once PER region in a loop,
+        // and a full compacting collect after every region is what made map exports crawl (this GC was
+        // removed upstream for exactly that reason). Maps skip it; cosmetics/single exports keep it.
+        if (reclaimMemory)
+        {
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        }
 
         return exportedProperly;
     }
@@ -157,12 +163,12 @@ public static class Exporter
     
     public static async Task<bool>? Export(IEnumerable<UObject> assets, EExportType type, ExportDataMeta metaData)
     {
-        return await Export(() => assets.Select(asset => CreateExport(asset.Name, asset, type, [], metaData)), metaData);
+        return await Export(() => assets.Select(asset => CreateExport(asset.Name, asset, type, [], metaData)), metaData, reclaimMemory: type is not EExportType.World);
     }
-    
+
     public static async Task<bool> Export(UObject asset, EExportType type, ExportDataMeta metaData)
     {
-        return await Export(() => [CreateExport(asset.Outer?.Name.Text.SubstringAfterLast("/") ?? asset.Name, asset, type, [], metaData)], metaData);
+        return await Export(() => [CreateExport(asset.Outer?.Name.Text.SubstringAfterLast("/") ?? asset.Name, asset, type, [], metaData)], metaData, reclaimMemory: type is not EExportType.World);
     }
     
     public static async Task<bool> Export(UObject asset, ExportDataMeta metaData)
