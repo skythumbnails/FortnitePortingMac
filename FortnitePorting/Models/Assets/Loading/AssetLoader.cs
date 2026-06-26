@@ -240,7 +240,11 @@ public partial class AssetLoader : ObservableObject
         var manuallyDefinedAssets = ManuallyDefinedAssets.Value;
         TotalAssets = Assets.Count + manuallyDefinedAssets.Length + CustomAssets.Length;
         
-        await Parallel.ForEachAsync(Assets, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, 
+        // Cap concurrency at half the cores: loading a tab parses thousands of assets, and pinning
+        // every core flat-out is what makes the machine run hot (and spikes peak memory from all
+        // the in-flight parses). Half the cores keeps tab loads fast without cooking the laptop.
+        var loadParallelism = Math.Max(2, Environment.ProcessorCount / 2);
+        await Parallel.ForEachAsync(Assets, new ParallelOptions { MaxDegreeOfParallelism = loadParallelism },
             async (asset, ct) =>
             {
                 await WaitIfPausedAsync();
@@ -287,10 +291,24 @@ public partial class AssetLoader : ObservableObject
             LoadedAssets++;
         }
         
+        Log.Information("Loader {Type}: {Matched} registry matches, {Created} items created", Type, TotalAssets, AssetBag.Count);
+
         Source.AddOrUpdate(AssetBag);
         AssetBag.Clear();
         LoadedAssets = TotalAssets;
         FinishedLoading = true;
+
+        // The registry rows are only needed while loading; each loader was retaining its full
+        // FAssetData list (name/tag maps for every matched asset) for the app's lifetime.
+        Assets = [];
+
+        // A tab load allocates in one big burst (thousands of package parses + texture decodes) and
+        // then goes idle. Force a compacting collection so the transient garbage — and the large
+        // object heap the texture decoders churn through — is handed back to the OS right now instead
+        // of whenever the GC next decides to. This is what stops the footprint ratcheting up with
+        // every tab the user opens.
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private async Task LoadAsset(FAssetData data)
@@ -313,10 +331,15 @@ public partial class AssetLoader : ObservableObject
         
         var isHidden = HideNames.Any(name => asset.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) || HidePredicate(this, asset, displayName);
         if (isHidden && !LoadHiddenAssets) return;
-        
+
         var icon = IconHandler(asset) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        if (icon is null) return;
-        
+        // Icon resolution fails for brand-new asset classes whose properties don't fully parse
+        // (e.g. the C7S3 Sprite definitions) when the placeholder texture also isn't available in
+        // the on-demand archive set. Dropping the item here silently emptied whole tabs — create
+        // the item anyway; AssetItem falls back to a blank icon over the rarity card.
+        if (icon is null)
+            Log.Warning("No icon resolved for {Name} ({Type}); showing without icon", asset.Name, Type);
+
         var args = new AssetItemCreationArgs
         {
             Object = asset,
@@ -341,8 +364,10 @@ public partial class AssetLoader : ObservableObject
         var displayName = manualAsset.Name;
             
         var icon = await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(manualAsset.IconPath) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        if (icon is null) return;
-        
+        // Same no-drop policy as LoadAsset(UObject): a missing icon must not hide the asset.
+        if (icon is null)
+            Log.Warning("No icon resolved for manual asset {Name} ({Type}); showing without icon", manualAsset.Name, Type);
+
         var args = new AssetItemCreationArgs
         {
             Object = asset,

@@ -115,6 +115,15 @@ public static class Exporter
             exportedProperly = true;
         });
 
+        // The export is now handed off to Blender. The meshes/textures/materials this export pulled in
+        // (and, under On-Demand, the streamed+decompressed chunk data behind them) are no longer needed
+        // on our side, but they've just spiked the heap. Force a compacting collection so that memory is
+        // returned to the OS NOW — while Blender is busy importing — instead of lingering. The combined
+        // FortnitePorting + Blender footprint during an import is what pushes a Mac into swap and crashes
+        // Blender; releasing our share right here is the single biggest thing that prevents it.
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+
         return exportedProperly;
     }
     

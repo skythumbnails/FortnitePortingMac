@@ -66,14 +66,11 @@ public class FAssetRegistryReader : FAssetRegistryArchive
     public override void SerializeTagsAndBundles(FAssetData assetData)
     {
         var size = baseArchive.Read<ulong>();
-        var ret = new Dictionary<FName, string>();
-        var mapHandle = FPartialMapHandle.MakeFullHandle(Tags, size);
-        foreach (var m in mapHandle.GetEnumerable())
-        {
-            ret[m.Key] = FValueHandle.GetString(Tags, m.Value) ?? $"UNK_Value_{m.Value.Index}";
-        }
-
-        assetData.TagsAndValues = ret;
+        // Tags live in the shared `Tags` store and are read by handle, so we don't need to iterate
+        // them to keep the archive position correct (only the size read above advances baseArchive).
+        // FortnitePorting never reads asset tags, so skip materializing the per-asset dictionary and
+        // its value strings entirely — this is the bulk of the registry-parse memory.
+        assetData.TagsAndValues = FAssetData.EmptyTags;
         assetData.TaggedAssetBundles = new FAssetBundleData(this);
     }
 
