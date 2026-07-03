@@ -31,14 +31,19 @@ public class AssetItemCreationArgs : BaseAssetItemCreationArgs
             {
                 ObjectPath = value.GetPathName();
                 ObjectName = value.Name;
+                ObjectClassName = value.ExportType;
             }
         }
     }
 
     // Captured when Object is first set so identity-only consumers (the search filter runs across
-    // every item on each keystroke) never force a re-parse of the whole object.
+    // every item on each keystroke, and the category filters across every item when toggled) never
+    // force a re-parse of the whole object after it's been released. ObjectClassName is the UE class
+    // name (e.g. "AthenaGadgetItemDefinition") — distinct from the base ExportType, which is our
+    // EExportType category enum.
     public string? ObjectPath { get; set; }
     public string ObjectName { get; set; } = string.Empty;
+    public string ObjectClassName { get; set; } = string.Empty;
 
     // Drops the parsed object tree; the getter reloads it the next time it's genuinely needed.
     public void ReleaseObject() => _object = null;

@@ -136,10 +136,10 @@ public partial class AssetLoader : ObservableObject
         {
             Filters = 
             [
-                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
-                                                         || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
-                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
-                                                           || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
+                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
+                                                         || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
+                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
+                                                           || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
             ],
             AllowedTypes = 
             [
@@ -172,7 +172,7 @@ public partial class AssetLoader : ObservableObject
             Filters = 
             [
                 new FilterItem("Weapons", asset => asset.CreationData.GameplayTags.ContainsAny("Weapon")),
-                new FilterItem("Gadgets", asset => asset.CreationData.Object.ExportType.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
+                new FilterItem("Gadgets", asset => asset.CreationData.ObjectClassName.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
                 new FilterItem("Melee", asset => asset.CreationData.GameplayTags.ContainsAny("Melee")),
                 new FilterItem("Consumables", asset => asset.CreationData.GameplayTags.ContainsAny("Consume")),
                 new FilterItem("Lego", asset => asset.CreationData.GameplayTags.ContainsAny("Juno")),
