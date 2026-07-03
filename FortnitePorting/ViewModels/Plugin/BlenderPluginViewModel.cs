@@ -210,8 +210,37 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     private static bool TryGetBlenderProcess(string path, [MaybeNullWhen(false)] out Process process)
     {
-        var blenderProcesses = Process.GetProcessesByName("blender");
-        process = blenderProcesses.FirstOrDefault(process => process.MainModule is { } mainModule && mainModule.FileName.Equals(path.Replace("/", "\\")));
+        // Match a running Blender to the selected executable. The old implementation used
+        // Process.GetProcessesByName("blender") + path.Replace("/", "\\") — both Windows-isms that
+        // made this ALWAYS return false on macOS (the process is "Blender", paths use "/"). The effect:
+        // FortnitePorting never noticed Blender was already open, silently synced the plugin into a
+        // running Blender that won't load it until it's restarted, and left the user with "install the
+        // plugin" on export and nothing in Blender. Match by executable name and, when the OS lets us
+        // read it, the exact module path.
+        var exeName = System.IO.Path.GetFileNameWithoutExtension(path);
+        process = Process.GetProcesses().FirstOrDefault(candidate =>
+        {
+            try
+            {
+                if (!candidate.ProcessName.Equals(exeName, System.StringComparison.OrdinalIgnoreCase))
+                    return false;
+                try
+                {
+                    return candidate.MainModule?.FileName is not { } fileName
+                           || string.Equals(fileName, path, System.StringComparison.OrdinalIgnoreCase);
+                }
+                catch
+                {
+                    // MainModule isn't always readable for other processes on macOS; the name match
+                    // is enough to know a Blender is open and warn the user to close it.
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        });
         return process is not null;
     }
 }
