@@ -87,21 +87,37 @@ public static class SoundExtensions
 
         using (var binkaProcess = new Process())
         {
-            binkaProcess.StartInfo = new ProcessStartInfo
+            // binkadec is a Windows-only RAD Game Tools binary. vgmstream-cli (which is shipped on
+            // macOS via DependencyService.EnsureVgmStream) supports Bink Audio decoding, so route
+            // through it on Mac instead.
+            if (OperatingSystem.IsMacOS())
             {
-                FileName = Dependencies.BinkaDecoderFile.FullName,
-                Arguments = $"-i \"{binkaPath}\" -o \"{outPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                binkaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = Dependencies.VgmStreamFile.FullName,
+                    Arguments = $"-o \"{outPath}\" \"{binkaPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+            else
+            {
+                binkaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = Dependencies.BinkaDecoderFile.FullName,
+                    Arguments = $"-i \"{binkaPath}\" -o \"{outPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
 
             binkaProcess.Start();
             binkaProcess.WaitForExit();
         }
-        
+
         MiscExtensions.TryDeleteFile(binkaPath);
     }
-    
+
     public static void SaveRadaAsWav(byte[] data, string outPath)
     {
         var radaPath = Path.ChangeExtension(outPath, "rada");
@@ -109,19 +125,33 @@ public static class SoundExtensions
 
         using (var radaProcess = new Process())
         {
-            radaProcess.StartInfo = new ProcessStartInfo
+            // radadec isn't shipped on macOS either; fall back to vgmstream-cli the same way.
+            if (OperatingSystem.IsMacOS())
             {
-                FileName = Dependencies.RadaDecoderFile.FullName,
-                Arguments = $"-i \"{radaPath}\" -o \"{outPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true
-            };
+                radaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = Dependencies.VgmStreamFile.FullName,
+                    Arguments = $"-o \"{outPath}\" \"{radaPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+            else
+            {
+                radaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = Dependencies.RadaDecoderFile.FullName,
+                    Arguments = $"-i \"{radaPath}\" -o \"{outPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+            }
 
             radaProcess.Start();
             radaProcess.WaitForExit();
         }
-        
+
         MiscExtensions.TryDeleteFile(radaPath);
     }
     

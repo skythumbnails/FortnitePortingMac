@@ -32,7 +32,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <Grid Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
+                        <Grid x:Name="SidebarHeader" Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 2}" />
@@ -438,7 +438,7 @@
                                  Grid.RowSpan="2" />
 
         <Grid Grid.Row="0" HorizontalAlignment="Stretch" PointerPressed="OnPointerPressedUpperBar">
-            <Grid HorizontalAlignment="Right">
+            <Grid x:Name="WindowsChromeButtons" HorizontalAlignment="Right">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="{ext:Space 0.5}" />

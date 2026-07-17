@@ -79,7 +79,24 @@ class MeshImportContext:
                 solidify.material_offset = len(master_mesh.data.materials) - 1
                 
             if rig_type == ERigType.TASTY:
-                self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
+                # The Tasty rig builder assumes the standard humanoid skeleton; outfits with exotic
+                # skeletons (creatures, mascots, oversized props) can fail partway through. That
+                # used to abort the whole import — instead, keep the imported model on its default
+                # armature and tell the user what happened.
+                try:
+                    self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
+                except Exception as e:
+                    import traceback
+                    Log.error(f"Tasty rig failed for {self.name}:\n{traceback.format_exc()}")
+                    try:
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    except Exception:
+                        pass
+                    from ...server import Server
+                    Server.instance.send_message(
+                        f"The Tasty rig could not be applied to {self.name} — it was imported with the "
+                        f"default rig instead. This usually means a non-standard skeleton. "
+                        f"({type(e).__name__}: {e})")
 
             if anim_data := data.get("Animation"):
                 self.import_anim_data(anim_data, master_skeleton)

@@ -89,7 +89,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         "FortniteGame/Plugins/GameFeatures/BRCosmetics/Content/Animation/Game/MainPlayer/Menu/BR/Female_Commando_Idle_02_Rebirth_Montage"
     ];
 
-    private const EGame LATEST_GAME_VERSION = EGame.GAME_UE5_8;
+    private const EGame LATEST_GAME_VERSION = EGame.GAME_UE5_9;
     
     public DirectoryInfo CacheFolder => new(Path.Combine(App.ApplicationDataFolder.FullName, ".cache"));
 
@@ -202,6 +202,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Initializing CUE4Parse", stage: 0, weight: 5)]
     private async Task InitializeProviderSetup()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Detex.dll is Windows-only. Route BC1-BC7 textures through the managed AssetRipper
+            // decoder so cosmetic icons (typically BC7) render without it. ETC formats still need
+            // Detex but aren't used by Fortnite cosmetics on PC.
+            TextureDecoder.UseAssetRipperTextureDecoder = true;
+        }
+
         Provider = AppSettings.Installation.CurrentProfile.FortniteVersion switch
         {
             EFortniteVersion.LatestOnDemand => new HybridFileProvider(new VersionContainer(LATEST_GAME_VERSION)),
@@ -276,6 +284,19 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Loading Detex", stage: 3, weight: 1)]
     private async Task InitializeDetex()
     {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Detex is shipped as a Windows-only DLL. Remove any stale copy a prior run may have
+            // written and skip initialization — only ETC/BPTC textures depend on it.
+            var stalePath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
+            if (File.Exists(stalePath))
+            {
+                try { File.Delete(stalePath); }
+                catch (Exception ex) { Log.Warning(ex, "Could not remove stale {Path}", stalePath); }
+            }
+            return;
+        }
+
         var detexPath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
         if (!File.Exists(detexPath)) await DetexHelper.LoadDllAsync(detexPath);
         DetexHelper.Initialize(detexPath);
@@ -287,6 +308,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand)
         {
             await Api.EpicGames.VerifyAuthAsync();
+
+            // VerifyAuthAsync may have refreshed the Epic token; the on-demand downloader captured
+            // the previous one during provider setup (stage 0). Re-capture it so chunk requests are
+            // never sent with a stale bearer — stale-auth CDN responses (AccessDenied documents)
+            // previously got cached as chunk data, permanently breaking every asset whose data
+            // lived in those chunks (pink placeholder icons for old cosmetics).
+            if (Provider.OnDemandOptions is not null)
+                Provider.OnDemandOptions.Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token);
         }
         
         switch (AppSettings.Installation.CurrentProfile.FortniteVersion)
@@ -310,7 +339,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 LiveManifest = manifest;
 
                 await Provider.RegisterFiles(manifest);
-                
+
+                // Fortnite 41.20+ split cosmetics into a separate "content build": the base manifest
+                // no longer carries the cosmetic paks (or Cloud/IoStoreOnDemand.ini). Instead,
+                // Cloud/cloudcontent.json points at a second FortniteContentBuilds manifest whose
+                // pak/ucas/utoc set holds the cosmetic content — icon textures included. Without
+                // registering it, every cosmetic icon falls back to the pink placeholder.
+                await RegisterContentBuildAsync(manifest);
+
                 break;
             }
             default:
@@ -318,6 +354,48 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 await Provider.InitializeAsync();
                 break;
             }
+        }
+    }
+
+    private async Task RegisterContentBuildAsync(FBuildPatchAppManifest manifest)
+    {
+        try
+        {
+            var cloudContentFile = manifest.Files.FirstOrDefault(x =>
+                x.FileName.Equals("Cloud/cloudcontent.json", StringComparison.OrdinalIgnoreCase));
+            if (cloudContentFile is null) return;
+
+            var cloudContentText = System.Text.Encoding.UTF8.GetString(await cloudContentFile.GetStream().SaveBytesAsync());
+            var contentManifestPath = Newtonsoft.Json.Linq.JObject.Parse(cloudContentText)["ManifestPath"]?.ToString();
+            if (string.IsNullOrEmpty(contentManifestPath)) return;
+
+            UpdateStatus("Loading Content Build");
+            Log.Information("Content build manifest: {Path}", contentManifestPath);
+
+            var contentOptions = new ManifestParseOptions
+            {
+                // Content-build chunks live under the content CloudDir, not the base one.
+                ChunkBaseUrl = "http://download.epicgames.com/" + contentManifestPath.SubstringBeforeLast("/") + "/",
+                ChunkCacheDirectory = CacheFolder.FullName,
+                ManifestCacheDirectory = CacheFolder.FullName,
+                Decompressor = ManifestZlibStreamDecompressor.Decompress,
+                DecompressorState = ZlibHelper.Instance,
+                CacheChunksAsIs = true
+            };
+
+            var contentManifestFile = new FileInfo(Path.Combine(CacheFolder.FullName, contentManifestPath.SubstringAfterLast("/")));
+            if (!contentManifestFile.Exists || contentManifestFile.Length == 0)
+            {
+                await Api.DownloadFileAsync($"http://download.epicgames.com/{contentManifestPath}", contentManifestFile.FullName);
+            }
+
+            var contentManifest = FBuildPatchAppManifest.Deserialize(
+                await File.ReadAllBytesAsync(contentManifestFile.FullName), contentOptions);
+            await Provider.RegisterFiles(contentManifest);
+        }
+        catch (Exception e)
+        {
+            Log.Warning("Failed to register content-build archives: {Error}", e.ToString());
         }
     }
 
