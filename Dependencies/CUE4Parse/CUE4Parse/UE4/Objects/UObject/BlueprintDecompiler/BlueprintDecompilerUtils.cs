@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Linq;
 using CUE4Parse.GameTypes._2XKO.Kismet;
 using CUE4Parse.GameTypes.Borderlands4.Kismet;
 using CUE4Parse.GameTypes.DFHO.Kismet;
@@ -18,12 +15,12 @@ using CUE4Parse.UE4.Objects.Engine.Curves;
 using CUE4Parse.UE4.Objects.Engine.GameFramework;
 using CUE4Parse.UE4.Objects.GameplayTags;
 using CUE4Parse.Utils;
-using Serilog;
 
 namespace CUE4Parse.UE4.Objects.UObject.BlueprintDecompiler;
 
 public static class BlueprintDecompilerUtils
 {
+    
     public static TypeMappings? Mappings { get; set; }
     public static UFunction Function { get; set; }
     private static readonly Stack<int> _executionFlowStack = new();
@@ -924,7 +921,7 @@ public static class BlueprintDecompilerUtils
             }
             default:
             {
-                Log.Warning($"EPropertyType {propertyTag.TagData?.Type} is currently not implemented");
+                Log.Warning("EPropertyType {PropertyType} is currently not implemented", propertyTag.TagData?.Type);
                 return false;
             }
         }

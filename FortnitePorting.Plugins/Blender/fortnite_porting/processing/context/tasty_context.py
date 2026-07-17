@@ -98,33 +98,10 @@ class TastyImportContext:
         target_skeleton.rotation_euler = Euler((0, 0, 0))
         target_skeleton.scale = Vector((1, 1, 1))
 
-        # Same protection as the outfit-import path: a mid-build failure on a non-standard
-        # skeleton must not leave the armature half-rigged with no explanation.
-        try:
-            self.create_tasty_rig(target_skeleton, data.get("MasterSkeletalMesh"))
-        except Exception as e:
-            import traceback
-            print(f"[FNPORTING] Tasty rig (standalone) failed:\n{traceback.format_exc()}")
-            try:
-                bpy.ops.object.mode_set(mode='OBJECT')
-            except Exception:
-                pass
-            Server.instance.send_message(
-                f"The Tasty rig could not be applied to this armature — this usually means a "
-                f"non-standard skeleton. ({type(e).__name__}: {e})")
+        self.create_tasty_rig(target_skeleton, data.get("MasterSkeletalMesh"))
 
 
     def create_tasty_rig(self, target_skeleton, master_skeleton_mesh):
-        # Bail loudly if the caller couldn't find a master skeleton for this outfit. Without a
-        # master skel we can't fill in missing IK bones — every downstream call would crash
-        # silently and the rig would be only half-applied. Surface it to the user instead.
-        if master_skeleton_mesh is None:
-            Server.instance.send_message(
-                "Tasty rig couldn't be applied: no master skeletal mesh was provided for this "
-                "outfit. The standard humanoid skeleton couldn't be loaded — try re-exporting "
-                "after the asset has finished streaming, or pick a different rig type.")
-            return
-
         target_skeleton.data["is_tasty"] = True
         armature_data = target_skeleton.data
         is_metahuman = any(armature_data.bones, lambda bone: bone.name == "FACIAL_C_FacialRoot")
@@ -943,10 +920,10 @@ class TastyImportContext:
             CustomShape("clavicle_l", "CTRL_Clavicle", "THEME04"),
             CustomShape("ball_r", "CTRL_Toe", "THEME01"),
             CustomShape("ball_l", "CTRL_Toe", "THEME04"),
-            CustomShape("ik_foot_pole_r", "CTRL_Pole", "THEME01"),
-            CustomShape("ik_foot_pole_l", "CTRL_Pole", "THEME04"),
-            CustomShape("ik_hand_pole_r", "CTRL_Pole", "THEME01"),
-            CustomShape("ik_hand_pole_l", "CTRL_Pole", "THEME04"),
+            CustomShape("ik_foot_pole_r", "CTRL_Pole_Leg", "THEME01"),
+            CustomShape("ik_foot_pole_l", "CTRL_Pole_Leg", "THEME04"),
+            CustomShape("ik_hand_pole_r", "CTRL_Pole_Arm", "THEME01"),
+            CustomShape("ik_hand_pole_l", "CTRL_Pole_Arm", "THEME04"),
             CustomShape("ik_foot_ctrl_r", "CTRL_Foot_Ctrl", "THEME01"),
             CustomShape("ik_foot_ctrl_l", "CTRL_Foot_Ctrl", "THEME04"),
     

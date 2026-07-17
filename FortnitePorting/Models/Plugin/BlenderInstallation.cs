@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -9,7 +8,6 @@ using CommunityToolkit.Mvvm.Input;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.ViewModels;
 using Newtonsoft.Json;
-using Tomlyn;
 
 namespace FortnitePorting.Models.Plugin;
 
@@ -41,55 +39,24 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
     [JsonIgnore]
     public Version? BlenderVersion => TryGetVersion(BlenderPath);
 
-    private string? StartupPath
-    {
-        get
-        {
-            if (BlenderVersion is null) return null;
-            if (OperatingSystem.IsMacOS())
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "Library", "Application Support", "Blender",
-                    BlenderVersion.ToString(2), "scripts", "startup");
-            }
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Blender Foundation", "Blender",
-                BlenderVersion.ToString(2), "scripts", "startup");
-        }
-    }
+    private string? StartupPath => BlenderVersion is null ? null : Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "Blender Foundation",
+        "Blender",
+        BlenderVersion.ToString(2),
+        "scripts",
+        "startup");
 
-    private string? ManifestPath => StartupPath is null ? null : Path.Combine(StartupPath,
+    private string? MetaPath => StartupPath is null ? null : Path.Combine(StartupPath,
         "fortnite_porting",
-        "blender_manifest.toml");
+        "fortnite_porting_meta.json");
 
     public static readonly DirectoryInfo PluginWorkingDirectory = new(Path.Combine(App.PluginsFolder.FullName, "Blender"));
     public static readonly Version MinimumVersion = new(5, 0);
 
     public static Version GetVersion(string blenderPath)
     {
-        if (OperatingSystem.IsWindows())
-            return new Version(FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion!);
-
-        // macOS: FileVersionInfo can't read a Mach-O binary's version. Blender's version lives in
-        // the app bundle's Info.plist (CFBundleShortVersionString). blenderPath is the executable
-        // at Blender.app/Contents/MacOS/Blender, so Info.plist is two levels up.
-        var plistPath = Path.Combine(Path.GetDirectoryName(blenderPath)!, "..", "Info.plist");
-        if (File.Exists(plistPath))
-        {
-            var plist = File.ReadAllText(plistPath);
-            const string marker = "<key>CFBundleShortVersionString</key>";
-            var idx = plist.IndexOf(marker, StringComparison.Ordinal);
-            if (idx >= 0)
-            {
-                var start = plist.IndexOf("<string>", idx) + "<string>".Length;
-                var end = plist.IndexOf("</string>", start);
-                return new Version(plist.Substring(start, end - start));
-            }
-        }
-
-        throw new Exception($"Could not determine Blender version from path: {blenderPath}");
+        return new Version(FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion!);
     }
 
     public static Version? TryGetVersion(string? blenderPath)
@@ -97,11 +64,10 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
         if (string.IsNullOrWhiteSpace(blenderPath) || !File.Exists(blenderPath))
             return null;
 
-        // Route through GetVersion so the macOS Info.plist path is used (FileVersionInfo returns
-        // null/garbage for a Mach-O binary, which would otherwise make every Mac install "unknown").
         try
         {
-            return GetVersion(blenderPath);
+            var productVersion = FileVersionInfo.GetVersionInfo(blenderPath).ProductVersion;
+            return productVersion is not null ? new Version(productVersion) : null;
         }
         catch (Exception)
         {
@@ -117,21 +83,24 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
             return false;
         }
 
-        if (ManifestPath is null || !File.Exists(ManifestPath))
+        if (MetaPath is null || !File.Exists(MetaPath))
         {
-            Info.Message("Blender Extension", $"Plugin manifest does not exist at path {ManifestPath ?? "(unknown)"}, installation may have gone wrong.\nPlease remove the installation from Fortnite Porting and try again.");
-            Status = EPluginStatusType.Failed;
-            return false;
+            Status = EPluginStatusType.UpdateAvailable;
+            return true;
         }
 
-        var manifestContents = File.ReadAllText(ManifestPath);
-        var manifestToml = Toml.ToModel(manifestContents);
-        ExtensionVersion = new Version((string) manifestToml["version"]);
+        var meta = JsonConvert.DeserializeObject<FPPluginMeta>(File.ReadAllText(MetaPath));
+        if (meta is null || string.IsNullOrWhiteSpace(meta.Version))
+        {
+            Status = EPluginStatusType.UpdateAvailable;
+            return true;
+        }
 
-        var fpExtensionVersion = new FPVersion(ExtensionVersion.Major, ExtensionVersion.Minor, ExtensionVersion.Build);
-        Status = fpExtensionVersion.Equals(Globals.Version)
-            ? EPluginStatusType.Newest
-            : EPluginStatusType.UpdateAvailable;
+        var metaVersion = new FPVersion(meta.Version);
+        ExtensionVersion = new Version(metaVersion.Release, metaVersion.Major, metaVersion.Minor);
+        Status = !Globals.IsDevBuild && !metaVersion.Equals(Globals.Version)
+            ? EPluginStatusType.UpdateAvailable
+            : EPluginStatusType.Newest;
 
         return true;
     }
@@ -149,20 +118,10 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
 
         Status = EPluginStatusType.Modifying;
 
-        var destination = Path.Combine(StartupPath, "fortnite_porting");
-        MiscExtensions.Copy(Path.Combine(PluginWorkingDirectory.FullName, "fortnite_porting"), destination);
+        MiscExtensions.Copy(Path.Combine(PluginWorkingDirectory.FullName, "fortnite_porting"), Path.Combine(StartupPath, "fortnite_porting"));
 
-        // Wipe Python's compiled-bytecode cache for the plugin. MiscExtensions.Copy preserves source
-        // mtimes, so Python's stale-pyc check (mtime comparison) can reuse a .pyc compiled against
-        // the OLD plugin — the cause of puzzling "X is not a valid EExportType" errors after an
-        // enum change. Deleting __pycache__ forces a clean recompile.
-        if (Directory.Exists(destination))
-        {
-            foreach (var pycache in Directory.EnumerateDirectories(destination, "__pycache__", SearchOption.AllDirectories).ToArray())
-            {
-                try { Directory.Delete(pycache, recursive: true); } catch { /* best-effort */ }
-            }
-        }
+        if (MetaPath is not null)
+            File.WriteAllText(MetaPath, JsonConvert.SerializeObject(new FPPluginMeta { Version = Globals.VersionString }));
 
         var didSyncProperly = SyncExtensionVersion();
         if (verbose && !didSyncProperly)

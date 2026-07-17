@@ -1,5 +1,6 @@
 import os.path
 import bpy
+import numpy as np
 from math import radians
 
 from ..mappings import *
@@ -78,24 +79,7 @@ class MeshImportContext:
                 solidify.material_offset = len(master_mesh.data.materials) - 1
                 
             if rig_type == ERigType.TASTY:
-                # The Tasty rig builder assumes the standard humanoid skeleton; outfits with exotic
-                # skeletons (creatures, mascots, oversized props) can fail partway through. That
-                # used to abort the whole import — instead, keep the imported model on its default
-                # armature and tell the user what happened.
-                try:
-                    self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
-                except Exception as e:
-                    import traceback
-                    Log.error(f"Tasty rig failed for {self.name}:\n{traceback.format_exc()}")
-                    try:
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                    except Exception:
-                        pass
-                    from ...server import Server
-                    Server.instance.send_message(
-                        f"The Tasty rig could not be applied to {self.name} — it was imported with the "
-                        f"default rig instead. This usually means a non-standard skeleton. "
-                        f"({type(e).__name__}: {e})")
+                self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
 
             if anim_data := data.get("Animation"):
                 self.import_anim_data(anim_data, master_skeleton)
@@ -200,12 +184,18 @@ class MeshImportContext:
 
         # Only add preskinned attributes if they don't already exist
         if imported_mesh is not None and imported_mesh.data.attributes.get("PS_LOCAL_POSITION") is None:
-            preskinned_pos = imported_mesh.data.attributes.new( domain="POINT", type="FLOAT_VECTOR",  name="PS_LOCAL_POSITION")
-            preskinned_normal = imported_mesh.data.attributes.new(domain="POINT", type="FLOAT_VECTOR", name="PS_LOCAL_NORMAL")
+            mesh_data = imported_mesh.data
+            vert_count = len(mesh_data.vertices)
+            positions = np.empty(vert_count * 3, dtype=np.float32)
+            normals = np.empty(vert_count * 3, dtype=np.float32)
+            mesh_data.vertices.foreach_get("co", positions)
+            mesh_data.vertices.foreach_get("normal", normals)
 
-            for vert in imported_mesh.data.vertices:
-                preskinned_pos.data[vert.index].vector = vert.co
-                preskinned_normal.data[vert.index].vector = vert.normal
+            # Bulk foreach_set — per-vertex bpy writes are multi-minute on large meshes.
+            preskinned_pos = mesh_data.attributes.new(domain="POINT", type="FLOAT_VECTOR", name="PS_LOCAL_POSITION")
+            preskinned_normal = mesh_data.attributes.new(domain="POINT", type="FLOAT_VECTOR", name="PS_LOCAL_NORMAL")
+            preskinned_pos.data.foreach_set("vector", positions)
+            preskinned_normal.data.foreach_set("vector", normals)
 
             self.update_preskinned_bounds(imported_mesh, True)
 
@@ -334,29 +324,40 @@ class MeshImportContext:
     
 
     def update_preskinned_bounds(self, imported_mesh, new_attribute=False):
+        mesh_data = imported_mesh.data
+        vert_count = len(mesh_data.vertices)
+        if vert_count == 0:
+            return
+
         corners = imported_mesh.bound_box
         x_coords, y_coords, z_coords = zip(*corners)
-        bbox_min = (min(x_coords), min(y_coords), min(z_coords))
-        bbox_max = (max(x_coords), max(y_coords), max(z_coords))
+        bbox_min = np.array(
+            (min(x_coords), min(y_coords), min(z_coords)),
+            dtype=np.float32,
+        )
+        bbox_max = np.array(
+            (max(x_coords), max(y_coords), max(z_coords)),
+            dtype=np.float32,
+        )
+        ranges = bbox_max - bbox_min
+        safe_ranges = np.where(ranges != 0.0, ranges, 1.0)
 
-        def map_bounds(point):
-            x_range = bbox_max[0] - bbox_min[0]
-            y_range = bbox_max[1] - bbox_min[1]
-            z_range = bbox_max[2] - bbox_min[2]
-    
-            x_mapped = (point[0] - bbox_min[0]) / x_range if x_range != 0 else 0.0
-            y_mapped = (point[1] - bbox_min[1]) / y_range if y_range != 0 else 0.0
-            z_mapped = (point[2] - bbox_min[2]) / z_range if z_range != 0 else 0.0
-            
-            return x_mapped, y_mapped, z_mapped
+        positions = np.empty(vert_count * 3, dtype=np.float32)
+        mesh_data.vertices.foreach_get("co", positions)
+        pts = positions.reshape(vert_count, 3)
+        mapped = (pts - bbox_min) / safe_ranges
+        mapped = np.where(ranges != 0.0, mapped, 0.0).astype(np.float32, copy=False)
 
         if new_attribute:
-            preskinned_bounds = imported_mesh.data.attributes.new(domain="POINT", type="FLOAT_VECTOR", name="PS_LOCAL_BOUNDS")
+            preskinned_bounds = mesh_data.attributes.new(
+                domain="POINT", type="FLOAT_VECTOR", name="PS_LOCAL_BOUNDS"
+            )
         else:
-            preskinned_bounds = imported_mesh.data.attributes.get("PS_LOCAL_BOUNDS")
+            preskinned_bounds = mesh_data.attributes.get("PS_LOCAL_BOUNDS")
+            if preskinned_bounds is None:
+                return
 
-        for vert in imported_mesh.data.vertices:
-            preskinned_bounds.data[vert.index].vector = map_bounds(vert.co)
+        preskinned_bounds.data.foreach_set("vector", mapped.ravel())
             
     def parent_deform_bones(self, skeleton, prefixes):
         bpy.context.view_layer.objects.active = skeleton

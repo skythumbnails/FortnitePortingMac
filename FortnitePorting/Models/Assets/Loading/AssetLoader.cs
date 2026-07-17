@@ -37,16 +37,17 @@ public partial class AssetLoader : ObservableObject
     public string[] AllowNames = [];
     public string[] HideNames = [];
     public string[] DisallowedNames = [];
-    public Lazy<ManuallyDefinedAsset[]> ManuallyDefinedAssets = new([]);
+    public Func<ManuallyDefinedAsset[]>? ManuallyDefinedAssetsFactory;
     public CustomAsset[] CustomAssets = [];
     public bool LoadHiddenAssets;
     public bool HideRarity;
     public Func<AssetLoader, UObject, string, bool> HidePredicate = (loader, asset, name) => false;
     public Action<AssetLoader, UObject, string> AddStyleHandler = (loader, asset, name) => {};
     public string PlaceholderIconPath = "FortniteGame/Content/Athena/Prototype/Textures/T_Placeholder_Generic";
-    public Func<UObject, UTexture2D?> IconHandler = GetIcon;
+    public Func<UObject, UTexture2D?> LowResIconHandler = GetLowResIcon;
+    public Func<UObject, UTexture2D?> HighResIconHandler = GetHighResIcon;
     public Func<UObject, string?> DisplayNameHandler = asset => asset.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
-    public Func<UObject, string?> DescriptionHandler = asset => asset.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text;
+    public Func<UObject, string?> DescriptionHandler = asset => asset.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text.TrimEnd();
     public Func<UObject, FGameplayTagContainer?> GameplayTagHandler = GetGameplayTags;
     
     public readonly ConcurrentBag<BaseAssetItem> AssetBag = [];
@@ -55,9 +56,33 @@ public partial class AssetLoader : ObservableObject
     public readonly ConcurrentBag<string> FilteredAssetBag = [];
     public readonly ConcurrentDictionary<string, ConcurrentBag<string>> StyleDictionary = [];
 
-    private List<FAssetData> Assets;
+    private List<FPartialAssetData> AssetDatas;
 
     private bool BeganLoading;
+    private CancellationTokenSource _loadCts = new();
+
+    public void Reset()
+    {
+        _loadCts.Cancel();
+        _loadCts.Dispose();
+        _loadCts = new CancellationTokenSource();
+
+        BeganLoading = false;
+        FinishedLoading = false;
+        LoadedAssets = 0;
+        TotalAssets = int.MaxValue;
+        
+        foreach (var item in Source.Items)
+        {
+            item.IconDisplayImage = null;
+            item.BackgroundImage = null;
+        }
+        
+        Source.Clear();
+        FilteredAssetBag.Clear();
+        StyleDictionary.Clear();
+        SelectedAssetInfos.Clear();
+    }
     
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PauseIcon))] private bool _isPaused = false;
     public MaterialIconKind PauseIcon => IsPaused ? MaterialIconKind.Play : MaterialIconKind.Pause;
@@ -82,7 +107,6 @@ public partial class AssetLoader : ObservableObject
     public readonly IObservable<Func<BaseAssetItem, bool>> AssetFilter;
     [ObservableProperty] private string _searchFilter = string.Empty;
     [ObservableProperty] private bool _useRegex = false;
-    [ObservableProperty] private ObservableCollection<string> _searchAutoComplete = [];
     
     private readonly SemaphoreSlim _pauseSemaphore = new(1, 1);
     
@@ -136,10 +160,10 @@ public partial class AssetLoader : ObservableObject
         {
             Filters = 
             [
-                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                         || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
-                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                           || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
+                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                         || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
+                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                           || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
             ],
             AllowedTypes = 
             [
@@ -172,7 +196,7 @@ public partial class AssetLoader : ObservableObject
             Filters = 
             [
                 new FilterItem("Weapons", asset => asset.CreationData.GameplayTags.ContainsAny("Weapon")),
-                new FilterItem("Gadgets", asset => asset.CreationData.ObjectClassName.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
+                new FilterItem("Gadgets", asset => asset.CreationData.Object.ExportType.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
                 new FilterItem("Melee", asset => asset.CreationData.GameplayTags.ContainsAny("Melee")),
                 new FilterItem("Consumables", asset => asset.CreationData.GameplayTags.ContainsAny("Consume")),
                 new FilterItem("Lego", asset => asset.CreationData.GameplayTags.ContainsAny("Juno")),
@@ -218,35 +242,33 @@ public partial class AssetLoader : ObservableObject
     {
         if (BeganLoading) return;
         BeganLoading = true;
-        
-        Assets = UEParse.AssetRegistry
+
+        var token = _loadCts.Token;
+
+        AssetDatas = UEParse.AssetRegistry
             .Where(data => ClassNames.Contains(data.AssetClass.Text))
             .ToList();
-        Assets.RemoveAll(data => data.AssetName.Text.EndsWith("Random", StringComparison.OrdinalIgnoreCase));
+        AssetDatas.RemoveAll(data => data.AssetName.Text.EndsWith("Random", StringComparison.OrdinalIgnoreCase));
 
-        Assets.RemoveAll(asset => DisallowedNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)));
+        AssetDatas.RemoveAll(asset => DisallowedNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)));
         
         if (AllowNames.Length > 0)
         {
-            Assets.RemoveAll(asset => !AllowNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)));
+            AssetDatas.RemoveAll(asset => !AllowNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)));
         }
 
         if (!LoadHiddenAssets)
         {
-            Assets.RemoveAll(asset => HideNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)) || asset.PackageName.Text.Contains("Placeholder", StringComparison.OrdinalIgnoreCase));
+            AssetDatas.RemoveAll(asset => HideNames.Any(name => asset.PackageName.Text.Contains(name, StringComparison.OrdinalIgnoreCase)) || asset.PackageName.Text.Contains("Placeholder", StringComparison.OrdinalIgnoreCase));
         }
 
+        var manuallyDefinedAssets = ManuallyDefinedAssetsFactory?.Invoke() ?? [];
+        TotalAssets = AssetDatas.Count + manuallyDefinedAssets.Length + CustomAssets.Length;
 
-        var manuallyDefinedAssets = ManuallyDefinedAssets.Value;
-        TotalAssets = Assets.Count + manuallyDefinedAssets.Length + CustomAssets.Length;
-        
-        // Cap concurrency at half the cores: loading a tab parses thousands of assets, and pinning
-        // every core flat-out is what makes the machine run hot (and spikes peak memory from all
-        // the in-flight parses). Half the cores keeps tab loads fast without cooking the laptop.
-        var loadParallelism = Math.Max(2, Environment.ProcessorCount / 2);
-        await Parallel.ForEachAsync(Assets, new ParallelOptions { MaxDegreeOfParallelism = loadParallelism },
+        await Parallel.ForEachAsync(AssetDatas, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(2, Environment.ProcessorCount / 2) },
             async (asset, ct) =>
             {
+                if (token.IsCancellationRequested) return;
                 await WaitIfPausedAsync();
                 try
                 {
@@ -259,10 +281,10 @@ public partial class AssetLoader : ObservableObject
 
                 LoadedAssets++;
             });
-      
 
         foreach (var manualAsset in manuallyDefinedAssets)
         {
+            if (token.IsCancellationRequested) break;
             await WaitIfPausedAsync();
             try
             {
@@ -275,9 +297,10 @@ public partial class AssetLoader : ObservableObject
 
             LoadedAssets++;
         }
-        
+
         foreach (var customAsset in CustomAssets)
         {
+            if (token.IsCancellationRequested) break;
             await WaitIfPausedAsync();
             try
             {
@@ -290,35 +313,22 @@ public partial class AssetLoader : ObservableObject
 
             LoadedAssets++;
         }
-        
-        Log.Information("Loader {Type}: {Matched} registry matches, {Created} items created", Type, TotalAssets, AssetBag.Count);
+
+        if (token.IsCancellationRequested) return;
 
         Source.AddOrUpdate(AssetBag);
         AssetBag.Clear();
         LoadedAssets = TotalAssets;
         FinishedLoading = true;
 
-        // The registry rows are only needed while loading; each loader was retaining its full
-        // FAssetData list (name/tag maps for every matched asset) for the app's lifetime.
-        Assets = [];
-
-        // A tab load allocates in one big burst (thousands of package parses + texture decodes) and
-        // then goes idle. Force a compacting collection so the transient garbage — and the large
-        // object heap the texture decoders churn through — is handed back to the OS right now instead
-        // of whenever the GC next decides to. This is what stops the footprint ratcheting up with
-        // every tab the user opens.
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        AssetDatas.Clear();
     }
 
-    private async Task LoadAsset(FAssetData data)
+    private async Task LoadAsset(FPartialAssetData data)
     {
         var asset = await UEParse.Provider.SafeLoadPackageObjectAsync(data.ObjectPath);
         if (asset is null) return;
 
-        /*data.TagsAndValues.TryGetValue("DisplayName", out var displayName);
-        displayName ??= data.AssetName.Text;*/
-        
         await LoadAsset(asset);
     }
     
@@ -332,18 +342,16 @@ public partial class AssetLoader : ObservableObject
         var isHidden = HideNames.Any(name => asset.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) || HidePredicate(this, asset, displayName);
         if (isHidden && !LoadHiddenAssets) return;
 
-        var icon = IconHandler(asset) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        // Icon resolution fails for brand-new asset classes whose properties don't fully parse
-        // (e.g. the C7S3 Sprite definitions) when the placeholder texture also isn't available in
-        // the on-demand archive set. Dropping the item here silently emptied whole tabs — create
-        // the item anyway; AssetItem falls back to a blank icon over the rarity card.
-        if (icon is null)
-            Log.Warning("No icon resolved for {Name} ({Type}); showing without icon", asset.Name, Type);
-
+        var lowResIconPath = LowResIconHandler(asset)?.GetPathName();
+        var highResIconPath = HighResIconHandler(asset)?.GetPathName();
+        if (lowResIconPath is null && highResIconPath is null)
+            lowResIconPath = PlaceholderIconPath;
+        
         var args = new AssetItemCreationArgs
         {
             Object = asset,
-            Icon = icon,
+            LowResIconPath = lowResIconPath,
+            HighResIconPath = highResIconPath,
             ID = asset.Name,
             DisplayName = displayName,
             Description = DescriptionHandler(asset) ?? "No Description.",
@@ -361,19 +369,12 @@ public partial class AssetLoader : ObservableObject
         var asset = await UEParse.Provider.SafeLoadPackageObjectAsync(manualAsset.AssetPath);
         if (asset is null) return;
 
-        var displayName = manualAsset.Name;
-            
-        var icon = await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(manualAsset.IconPath) ?? await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(PlaceholderIconPath);
-        // Same no-drop policy as LoadAsset(UObject): a missing icon must not hide the asset.
-        if (icon is null)
-            Log.Warning("No icon resolved for manual asset {Name} ({Type}); showing without icon", manualAsset.Name, Type);
-
         var args = new AssetItemCreationArgs
         {
             Object = asset,
-            Icon = icon,
+            LowResIconPath = manualAsset.IconPath,
             ID = asset.Name,
-            DisplayName = displayName,
+            DisplayName = manualAsset.Name,
             Description = manualAsset.Description,
             ExportType = Type,
             HideRarity = HideRarity,
@@ -388,10 +389,21 @@ public partial class AssetLoader : ObservableObject
         AssetBag.Add(new CustomAssetItem(customAsset, Type));
     }
     
-    public static UTexture2D? GetIcon(UObject asset)
+    public static UTexture2D? GetLowResIcon(UObject asset)
     {
         return asset.GetDataListItem<UTexture2D?>("Icon", "LargeIcon")
-               ?? asset.GetAnyOrDefault<UTexture2D?>("Icon", "SmallPreviewImage", "LargeIcon", "LargePreviewImage");
+               ?? asset.GetAnyOrDefault<UTexture2D?>("Icon", "SmallPreviewImage", "LargeIcon");
+    }
+
+    public static UTexture2D? GetHighResIcon(UObject asset)
+    {
+        return asset.GetDataListItem<UTexture2D?>("LargeIcon", "Icon")
+               ?? asset.GetAnyOrDefault<UTexture2D?>("LargePreviewImage", "LargeIcon", "Icon");
+    }
+
+    public static UTexture2D? GetIcon(UObject asset)
+    {
+        return GetLowResIcon(asset) ?? GetHighResIcon(asset);
     }
     
     public static FGameplayTagContainer? GetGameplayTags(UObject asset)
@@ -458,9 +470,6 @@ public partial class AssetLoader : ObservableObject
                 {
                     if (sortType is EAssetSortType.Series && assetItem.Series is null)
                         return false;
-                
-                    if (sortType is EAssetSortType.Season && assetItem.Season == AssetItem.INVALID_SEASON)
-                        return false;
                 }
 
                 return assetItem.Match(searchFilter, useRegex)
@@ -476,14 +485,26 @@ public partial class AssetLoader : ObservableObject
     private static SortExpressionComparer<BaseAssetItem> CreateAssetSort((EAssetSortType, bool) values)
     {
         var (type, descending) = values;
+
+        if (type is EAssetSortType.Season)
+        {
+            // keep invalid seasons at the bottom regardless of ascending/descending.
+            var comparer = SortExpressionComparer<BaseAssetItem>.Ascending(asset =>
+                asset is AssetItem { Season: AssetItem.INVALID_SEASON } ? 1 : 0);
+
+            Func<BaseAssetItem, IComparable> seasonSort = asset =>
+                asset is AssetItem assetItem
+                    ? (assetItem.Season, assetItem.CreationData.ID)
+                    : (0, asset.CreationData.ID);
+
+            return descending
+                ? comparer.ThenByDescending(seasonSort)
+                : comparer.ThenByAscending(seasonSort);
+        }
+
         Func<BaseAssetItem, IComparable> sort = type switch
         {
             EAssetSortType.AZ => asset => asset.CreationData.DisplayName,
-
-            EAssetSortType.Season => asset =>
-                asset is AssetItem assetItem
-                    ? (assetItem.Season, assetItem.CreationData.ID)
-                    : (0, asset.CreationData.ID),
 
             EAssetSortType.Rarity => asset =>
                 asset is AssetItem assetItem

@@ -1,6 +1,5 @@
 import bpy
 from ..enums import *
-from .material_context import is_datablock_alive
 import os.path
 
 image_cache = {}
@@ -56,22 +55,14 @@ class TextureImportContext:
         return texture_path, name
 
     def import_image(self, path: str):
-        cache_key = path
 
-        # Validate the cached image is still alive — if the user deleted/undid a prior import,
-        # the cached datablock is a dangling reference that would crash on use. Drop dead entries.
-        existing = image_cache.get(cache_key)
-        if existing is not None and not is_datablock_alive(existing):
-            image_cache.pop(cache_key, None)
-            existing = None
-        if existing:
+        if existing := image_cache.get(path):
             return existing
 
-        path, name = self.format_image_path(path)
-        if not os.path.exists(path):
+        fs_path, name = self.format_image_path(path)
+        if not os.path.exists(fs_path):
             return None
 
-        image = bpy.data.images.load(path, check_existing=True)
-        # Cache under the same key used for lookup (was previously keyed by name → never hit).
-        image_cache[cache_key] = image
+        image = bpy.data.images.load(fs_path, check_existing=True)
+        image_cache[path] = image
         return image

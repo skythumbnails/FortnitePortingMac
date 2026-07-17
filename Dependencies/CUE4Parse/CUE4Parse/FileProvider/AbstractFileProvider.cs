@@ -1,13 +1,7 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
-using System.Threading;
-using System.Threading.Tasks;
 using CUE4Parse.FileProvider.Objects;
 using CUE4Parse.FileProvider.Vfs;
 using CUE4Parse.MappingsProvider;
@@ -26,7 +20,6 @@ using CUE4Parse.UE4.Versions;
 using CUE4Parse.UE4.VirtualFileSystem;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
-using Serilog;
 using UE4Config.Parsing;
 
 namespace CUE4Parse.FileProvider
@@ -43,8 +36,6 @@ namespace CUE4Parse.FileProvider
 
     public abstract class AbstractFileProvider : IFileProvider
     {
-        protected static readonly ILogger Log = Serilog.Log.ForContext<IFileProvider>();
-
         public VersionContainer Versions { get; }
         public StringComparer PathComparer { get; }
         public StringComparison StringComparison { get; }
@@ -100,7 +91,7 @@ namespace CUE4Parse.FileProvider
                             {
                                 var stringTablePath = g.Value.SubstringAfter("LOCTABLE(\"").SubstringBeforeLast("\",");
 
-                                if (TryLoadPackageObject<UStringTable>(stringTablePath, out var stringTable))
+                                if (UStringTable.TryGet(this, stringTablePath, out var stringTable))
                                 {
                                     var keyName = g.Value.SubstringAfterLast(", \"").SubstringBeforeLast("\")"); // LOCTABLE("/Game/Narrative/LocalisedStrings/UI_Strings.UI_Strings", "23138_ui_pc_game_name_titlebar")
                                     var stringTableEntry = stringTable.StringTable.KeysToEntries;
@@ -129,7 +120,7 @@ namespace CUE4Parse.FileProvider
                     }
                 }
 
-                if (Versions.Game is EGame.GAME_Back4Blood)
+                if (Versions.Game is GAME_Back4Blood)
                     _gameDisplayName = "Back 4 Blood"; // They left is as LDTEXT("TEXT_UI_GameTitle")
 
                 return _gameDisplayName;

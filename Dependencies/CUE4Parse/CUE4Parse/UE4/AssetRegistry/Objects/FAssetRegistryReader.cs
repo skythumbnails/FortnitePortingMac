@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CUE4Parse.UE4.AssetRegistry.Readers;
 using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.UObject;
@@ -66,11 +65,14 @@ public class FAssetRegistryReader : FAssetRegistryArchive
     public override void SerializeTagsAndBundles(FAssetData assetData)
     {
         var size = baseArchive.Read<ulong>();
-        // Tags live in the shared `Tags` store and are read by handle, so we don't need to iterate
-        // them to keep the archive position correct (only the size read above advances baseArchive).
-        // FortnitePorting never reads asset tags, so skip materializing the per-asset dictionary and
-        // its value strings entirely — this is the bulk of the registry-parse memory.
-        assetData.TagsAndValues = FAssetData.EmptyTags;
+        var ret = new Dictionary<FName, string>();
+        var mapHandle = FPartialMapHandle.MakeFullHandle(Tags, size);
+        foreach (var m in mapHandle.GetEnumerable())
+        {
+            ret[m.Key] = FValueHandle.GetString(Tags, m.Value) ?? $"UNK_Value_{m.Value.Index}";
+        }
+
+        assetData.TagsAndValues = ret;
         assetData.TaggedAssetBundles = new FAssetBundleData(this);
     }
 
@@ -78,7 +80,7 @@ public class FAssetRegistryReader : FAssetRegistryArchive
     {
         if (Header.Version < FAssetRegistryVersionType.MemoryMappedTagDataStore)
             return;
-        
+
         baseArchive.Position = baseArchive.Position.Align(16);
     }
 

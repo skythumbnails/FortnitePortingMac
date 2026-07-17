@@ -37,7 +37,7 @@ public abstract partial class BaseAssetItem : ObservableObject
             return this switch
             {
                 AssetItem assetItem => Regex.IsMatch(assetItem.CreationData.DisplayName, filter)
-                                                    || Regex.IsMatch(assetItem.CreationData.ObjectName, filter)
+                                                    || Regex.IsMatch(assetItem.CreationData.Object.Name, filter)
                                                     || (assetItem.SetName is not null && Regex.IsMatch(assetItem.SetName, filter))
                                                     || (assetItem.Series is not null && Regex.IsMatch(assetItem.Series.DisplayName.Text, filter)),
                 CustomAssetItem customAssetItem =>  Regex.IsMatch(customAssetItem.CreationData.DisplayName, filter),
@@ -48,7 +48,7 @@ public abstract partial class BaseAssetItem : ObservableObject
         return this switch
         {
             AssetItem assetItem => MiscExtensions.Filter(assetItem.CreationData.DisplayName, filter)
-                                   || MiscExtensions.Filter(assetItem.CreationData.ObjectName, filter)
+                                   || MiscExtensions.Filter(assetItem.CreationData.Object.Name, filter)
                                    || (assetItem.SetName is not null && MiscExtensions.Filter(assetItem.SetName, filter))
                                    || (assetItem.Series is not null && MiscExtensions.Filter(assetItem.Series.DisplayName.Text, filter)),
             CustomAssetItem customAssetItem => MiscExtensions.Filter(customAssetItem.CreationData.DisplayName, filter),
@@ -94,9 +94,10 @@ public abstract partial class BaseAssetItem : ObservableObject
     }
     
     [RelayCommand]
-    public virtual async Task CopyIcon(bool withBackground = false)
+    public virtual async Task SaveIcon()
     {
-        await AvaloniaClipboard.SetImageAsync(IconDisplayImage);
+        if (await App.SaveFileDialog(suggestedFileName: CreationData.ID, Globals.PNGFileType) is not { } path) return;
+        IconDisplayImage?.Save(path);
     }
     
     [RelayCommand]

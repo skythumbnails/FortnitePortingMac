@@ -9,7 +9,7 @@ using FortnitePorting.Extensions;
 using FortnitePorting.Framework;
 using FortnitePorting.Services;
 using Material.Icons;
-// using NAudio.Wave;
+using NAudio.Wave;
 
 namespace FortnitePorting.WindowModels;
 
@@ -27,8 +27,8 @@ public partial class SoundPreviewWindowModel(SettingsService settings) : WindowM
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PauseIcon))] private bool _isPaused;
     public MaterialIconKind PauseIcon => IsPaused ? MaterialIconKind.Play : MaterialIconKind.Pause;
 
-    public object AudioReader = null;
-    public object OutputDevice = null;
+    public WaveFileReader AudioReader;
+    public WaveOutEvent OutputDevice = new();
     
     private readonly DispatcherTimer UpdateTimer = new();
 
@@ -41,31 +41,58 @@ public partial class SoundPreviewWindowModel(SettingsService settings) : WindowM
 
     public override async Task OnViewExited()
     {
-        // audio disabled on macOS
+        OutputDevice.Dispose();
+        await AudioReader.DisposeAsync();
     }
 
     private void OnUpdateTimerTick(object? sender, EventArgs e)
     {
-        // audio disabled on macOS
+        if (AudioReader is null) return;
+        
+        TotalTime = AudioReader.TotalTime;
+        CurrentTime = AudioReader.CurrentTime;
     }
 
     public async Task Play()
     {
-        // audio disabled on macOS
+        if (!SoundExtensions.TrySaveSoundToAssets(SoundWave, AppSettings.Application.AssetPath, out Stream stream)) return;
+
+        AudioReader = new WaveFileReader(stream);
+        
+        OutputDevice.Stop();
+        OutputDevice.Init(AudioReader);
+        OutputDevice.Play();
+        while (OutputDevice.PlaybackState != PlaybackState.Stopped) { }
     }
 
     public void TogglePause()
     {
-        // audio disabled on macOS
+        IsPaused = !IsPaused;
+        
+        if (IsPaused)
+        {
+            OutputDevice.Pause();
+        }
+        else
+        {
+            OutputDevice.Play();
+        }
     }
 
     public void Scrub(TimeSpan time)
     {
-        // audio disabled on macOS
+        AudioReader.CurrentTime = time;
     }
     
     public void UpdateOutputDevice()
     {
-        // audio disabled on macOS
+        OutputDevice.Stop();
+        OutputDevice = new WaveOutEvent { DeviceNumber = AppSettings.Application.AudioDeviceIndex };
+        OutputDevice.Init(AudioReader);
+        
+        if (!IsPaused && AudioReader is not null)
+        {
+            OutputDevice.Play();
+        }
     }
 }

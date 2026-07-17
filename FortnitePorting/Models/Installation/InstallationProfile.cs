@@ -24,10 +24,7 @@ public partial class InstallationProfile : ObservableValidator
     [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
     [NotifyPropertyChangedFor(nameof(LoadInstalledBundlesEnabled))]
     [NotifyPropertyChangedFor(nameof(IsCustom))]
-    // macOS default: On-Demand (no local Fortnite install required to get started). Users can
-    // switch a profile to "Latest (Installed)" and point at a local Paks folder to use their
-    // own game data instead.
-    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestOnDemand;
+    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestInstalled;
     
     [NotifyDataErrorInfo]
     [ArchiveDirectory(canValidateProperty: nameof(ArchiveDirectoryEnabled))]
@@ -81,54 +78,6 @@ public partial class InstallationProfile : ObservableValidator
             MappingsFile = path;
         }
     }
-
-    public async Task FetchKeys()
-    {
-        var keys = await Api.FortnitePorting.Aes(FetchKeysVersion);
-        if (keys is null)  
-        {
-            Info.Message("Fetch Keys", $"Failed to fetch keys for v{FetchKeysVersion}, keys for this version may not be available", InfoBarSeverity.Error);
-            return;
-        }
-
-        MainKey = FileEncryptionKey.Empty;
-        ExtraKeys.Clear();
-
-        MainKey = new FileEncryptionKey(keys.MainKey);
-        foreach (var dynamicKey in keys.DynamicKeys)
-        {
-            ExtraKeys.Add(new FileEncryptionKey(dynamicKey.Key));
-        }
-        
-        Info.Message("Fetch Keys", $"Successfully fetched {keys.DynamicKeys.Count + 1} keys for v{FetchKeysVersion}", InfoBarSeverity.Success);
-    }
-    
-    public async Task FetchMappings()
-    {
-        var mappings = await Api.FortnitePorting.Mappings(FetchMappingsVersion);
-        if (mappings?.Url is null)
-        {
-            Info.Message("Fetch Mappings", $"Failed to fetch mappings for v{FetchMappingsVersion}", InfoBarSeverity.Error);
-            return;
-        }
-
-        var mappingsFilePath = Path.Combine(App.DataFolder.FullName, mappings.Url.SubstringAfterLast("/"));
-        if (!File.Exists(mappingsFilePath))
-        {
-            var downloadedMappingsInfo = await Api.DownloadFileAsync(mappings.Url, mappingsFilePath);
-            if (!downloadedMappingsInfo.Exists)
-            {
-                Info.Message("Fetch Mappings", $"Failed to download mappings for v{FetchMappingsVersion}", InfoBarSeverity.Error);
-                return;
-            }
-        }
-        
-        MappingsFile = mappingsFilePath;
-        UseMappingsFile = true;
-        File.SetCreationTime(mappingsFilePath, mappings.GetCreationTime());
-        
-        Info.Message("Fetch Mappings", $"Successfully fetched mappings for v{FetchMappingsVersion}", InfoBarSeverity.Success);
-    }
     
     public async Task AddEncryptionKey()
     {
@@ -137,12 +86,7 @@ public partial class InstallationProfile : ObservableValidator
     
     public async Task RemoveEncryptionKey()
     {
-        // Guard the bounds: with no key selected (index -1) or an empty list, RemoveAt throws
-        // ArgumentOutOfRangeException, which surfaced as an unobserved-task FATAL in the logs.
         var selectedIndexToRemove = SelectedExtraKeyIndex;
-        if (selectedIndexToRemove < 0 || selectedIndexToRemove >= ExtraKeys.Count)
-            return;
-
         ExtraKeys.RemoveAt(selectedIndexToRemove);
         SelectedExtraKeyIndex = selectedIndexToRemove == 0 ? 0 : selectedIndexToRemove - 1;
     }

@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CUE4Parse.UE4.AssetRegistry.Readers;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
@@ -15,12 +14,6 @@ public class FAssetData
     public readonly FName AssetClass;
     public IDictionary<FName, string> TagsAndValues;
     public FAssetBundleData TaggedAssetBundles;
-
-    // Shared empty tag map. The asset-registry readers assign this instead of materializing a
-    // Dictionary<FName,string> per asset — for a full Fortnite build that is hundreds of thousands
-    // of dictionaries (plus their value strings) that nothing in FortnitePorting ever reads, and was
-    // a large chunk of the registry-parse memory peak.
-    public static readonly IDictionary<FName, string> EmptyTags = new Dictionary<FName, string>(0);
     public readonly int[] ChunkIDs;
     public readonly EPackageFlags PackageFlags;
 

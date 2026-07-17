@@ -1,7 +1,6 @@
 using System;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Platform;
 using FortnitePorting.Application;
 using FortnitePorting.Services;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,32 +13,20 @@ public abstract class WindowBase<T> : Window where T : WindowModelBase
 
     public WindowBase(T? templateWindowModel = null, bool initializeWindowModel = true)
     {
+        WindowManager.Register(this);
+
         WindowModel = templateWindowModel ?? AppServices.Services.GetService<T>();
         WindowModel.Window = this;
-
+        
         if (initializeWindowModel)
         {
             TaskService.Run(WindowModel.Initialize);
         }
     }
 
-    protected override void OnInitialized()
-    {
-        base.OnInitialized();
-
-        // Upstream windows declare ExtendClientAreaChromeHints="NoChrome" so they can draw custom
-        // Windows-style minimize/maximize/close buttons. On macOS we want the native traffic-light
-        // controls instead — override after XAML has applied.
-        if (OperatingSystem.IsMacOS())
-        {
-            ExtendClientAreaChromeHints =
-                ExtendClientAreaChromeHints.PreferSystemChrome |
-                ExtendClientAreaChromeHints.OSXThickTitleBar;
-        }
-    }
-
     protected override async void OnClosed(EventArgs e)
     {
+        WindowManager.Unregister(this);
         base.OnClosed(e);
         
         await WindowModel.OnViewExited();

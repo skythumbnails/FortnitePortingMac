@@ -32,7 +32,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <Grid x:Name="SidebarHeader" Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
+                        <Grid Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 2}" />
@@ -84,16 +84,13 @@
 
                         <sidebar:SidebarItemSeparator />
 
-                        <sidebar:SidebarItemText Text="ONLINE"
-                                                 IsVisible="{Binding OnlineSectionVisible}" />
+                        <sidebar:SidebarItemText Text="ONLINE" />
                         <sidebar:SidebarItemButton Text="Chat" Icon="Message" Tag="{x:Type views:ChatView}"
                                                    IsEnabled="{Binding SupaBase.IsLoggedIn}"
-                                                   IsVisible="{Binding OnlineStatus.Chat.Enabled}"
                                                    NotificationCount="{Binding Chat.UnseenMessageCount}"/>
                         <sidebar:SidebarItemButton Text="Leaderboard" Icon="Trophy"
                                                    Tag="{x:Type views:LeaderboardView}"
-                                                   IsEnabled="{Binding SupaBase.IsLoggedIn}"
-                                                   IsVisible="{Binding OnlineStatus.Leaderboard.Enabled}" />
+                                                   IsEnabled="{Binding SupaBase.IsLoggedIn}"/>
 
                         <sidebar:SidebarItemSeparator />
 
@@ -261,6 +258,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <Grid Grid.Row="0" Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Center"
@@ -271,7 +269,6 @@
                                 <TextBlock Grid.Column="2" HorizontalAlignment="Left" VerticalAlignment="Center"
                                            Text="{Binding Title}" Classes="BodyStrongTextBlockStyle" />
                             </Grid>
-
 
                             <TextBlock Grid.Row="1" Grid.Column="0" HorizontalAlignment="Left"
                                        VerticalAlignment="Center"
@@ -284,7 +281,15 @@
                                     Margin="{ext:Space -0.5}"
                                     Content="{material:MaterialIconExt Close}" Command="{Binding CloseCommand}" />
 
-                            <Button Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Margin="{ext:Space 0, 1, 0, 0}"
+                            <ProgressBar Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                         Height="8"
+                                         Margin="{ext:Space 0, 1, 0, 0}"
+                                         IsVisible="{Binding UseProgress}"
+                                         Minimum="0"
+                                         Maximum="{Binding ProgressTotal}"
+                                         Value="{Binding ProgressCurrent}" />
+
+                            <Button Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" Margin="{ext:Space 0, 1, 0, 0}"
                                     HorizontalAlignment="Stretch"
                                     IsVisible="{Binding UseButton}"
                                     Content="{Binding ButtonTitle}"
@@ -433,7 +438,7 @@
                                  Grid.RowSpan="2" />
 
         <Grid Grid.Row="0" HorizontalAlignment="Stretch" PointerPressed="OnPointerPressedUpperBar">
-            <Grid x:Name="WindowsChromeButtons" HorizontalAlignment="Right">
+            <Grid HorizontalAlignment="Right">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="{ext:Space 0.5}" />

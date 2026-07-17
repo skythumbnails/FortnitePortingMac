@@ -1,12 +1,7 @@
-using System;
-using System.Collections.Generic;
+using System.Buffers;
 using System.Diagnostics;
-using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-
 using CUE4Parse.Compression;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Texture;
@@ -14,11 +9,7 @@ using CUE4Parse.UE4.Exceptions;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
-
 using OffiUtils;
-
-using Serilog;
-
 using static CUE4Parse.Compression.Compression;
 using static CUE4Parse.UE4.Objects.Core.Misc.ECompressionFlags;
 using static CUE4Parse.UE4.Objects.UObject.FPackageFileSummary;
@@ -27,6 +18,7 @@ namespace CUE4Parse.UE4.Readers
 {
     public abstract class FArchive : RandomAccessStream, ICloneable
     {
+        
         public VersionContainer Versions;
         public EGame Game
         {
@@ -47,7 +39,7 @@ namespace CUE4Parse.UE4.Readers
 
         public bool SupportPartialReads => Game switch
         {
-            EGame.GAME_GameForPeace or EGame.GAME_Rennsport or EGame.GAME_DragonQuestXI => false,
+            GAME_GameForPeace or GAME_Rennsport or GAME_DragonQuestXI => false,
             _ => true,
         };
 
@@ -98,6 +90,18 @@ namespace CUE4Parse.UE4.Readers
             Unsafe.CopyBlockUnaligned(ref ptr[0], ref bytes[0], (uint) length);
         }
 
+        public virtual T Peek<T>()
+        {
+            var size = Unsafe.SizeOf<T>();
+            var saved = Position;
+            var buffer = ArrayPool<byte>.Shared.Rent(size);
+            Read(buffer, 0,  size);
+            Position = saved;
+            var result = Unsafe.ReadUnaligned<T>(ref buffer[0]);    
+            ArrayPool<byte>.Shared.Return(buffer);
+            return result;
+        }
+
         public virtual T Read<T>()
         {
             var size = Unsafe.SizeOf<T>();
@@ -110,7 +114,7 @@ namespace CUE4Parse.UE4.Readers
             var size = Unsafe.SizeOf<T>();
             var readLength = size * length;
             CheckReadSize(readLength);
-
+            
             var buffer = ReadBytes(readLength);
             var result = new T[length];
             if (length > 0) Unsafe.CopyBlockUnaligned(ref Unsafe.As<T, byte>(ref result[0]), ref buffer[0], (uint)(readLength));
@@ -132,7 +136,7 @@ namespace CUE4Parse.UE4.Readers
         {
             Versions = versions ?? new VersionContainer();
         }
-
+        
         public override void Flush() { }
         public override bool CanRead { get; } = true;
         public override bool CanWrite { get; } = false;
@@ -199,7 +203,7 @@ namespace CUE4Parse.UE4.Readers
         {
             var pos = Position;
             T[] array = ReadArray(elementCount, getter);
-            if (Game != EGame.GAME_HogwartsLegacy && Position != pos + array.Length * elementSize)
+            if (Game != GAME_HogwartsLegacy && Position != pos + array.Length * elementSize)
                 throw new ParserException($"RawArray item size mismatch: expected {elementSize}, serialized {(Position - pos) / array.Length}");
             return array;
         }
@@ -522,7 +526,7 @@ namespace CUE4Parse.UE4.Readers
             if (length == 0) return string.Empty;
             if (length < 0) throw new ParserException($"Negative Utf8String length '{length}'");
             if (length > Length - Position) throw new ParserException($"Invalid Utf8String length '{length}'");
-            
+
             return Encoding.UTF8.GetString(ReadSpan(length));
         }
 
@@ -551,7 +555,7 @@ namespace CUE4Parse.UE4.Readers
             // CompressionFormatToDecodeOldV1Files must match what was used to encode old files, cannot change
 
             // Serialize package file tag used to determine endianess.
-            var packageFileTag = Read<FCompressedChunkInfo>();
+            var packageFileTag = new FCompressedChunkInfo(this);
 
             // v1 header did not store CompressionFormatToDecode
             //	assume it was CompressionFormatToDecodeOldV1Files (usually Zlib)
@@ -622,7 +626,7 @@ namespace CUE4Parse.UE4.Readers
 
             // Read in base summary, contains total sizes :
             var summary = Read<FCompressedChunkInfo>();
-
+            
             if (bWasByteSwapped)
             {
                 summary.CompressedSize = (long) BYTESWAP_ORDER64((ulong) summary.CompressedSize);
@@ -656,7 +660,7 @@ namespace CUE4Parse.UE4.Readers
             long totalChunkUncompressedSize = 0;
             for (var chunkIndex = 0; chunkIndex < totalChunkCount; chunkIndex++)
             {
-                compressionChunks[chunkIndex] = Read<FCompressedChunkInfo>();
+                compressionChunks[chunkIndex] = new FCompressedChunkInfo(this);
                 if (bWasByteSwapped)
                 {
                     compressionChunks[chunkIndex].CompressedSize = (long) BYTESWAP_ORDER64((ulong) compressionChunks[chunkIndex].CompressedSize);
@@ -718,13 +722,13 @@ namespace CUE4Parse.UE4.Readers
                 throw new VersionException(this, "Read size is bigger than remaining archive length.");
             }
         }
-        
+
         public void DumpBytesToHex(int size, int maxBytesPerLine = 16) {
 #if DEBUG
             var savePos = Position;
             var bytes = ReadBytes(size);
             Position = savePos;
-            
+
             var sb = new StringBuilder();
             for (var i = 0; i < bytes.Length; i++) {
                 if (i % maxBytesPerLine == 0) {
@@ -738,7 +742,7 @@ namespace CUE4Parse.UE4.Readers
             Console.Write(sb.ToString()+"\n");
 #endif
         }
-        
+
         public void DumpBytesToFile(int size) {
 #if DEBUG
             var savePos = Position;
@@ -754,12 +758,18 @@ namespace CUE4Parse.UE4.Readers
             Process.Start("explorer.exe", $"/select,\"{f.FullName}\"");
 #endif
         }
-        
+
         public abstract object Clone();
 
         public struct FCompressedChunkInfo
         {
             public long CompressedSize, UncompressedSize;
+
+            public FCompressedChunkInfo(FArchive Ar)
+            {
+                CompressedSize = Ar.Game < GAME_UE4_0 ? Ar.Read<uint>() : Ar.Read<long>();
+                UncompressedSize = Ar.Game < GAME_UE4_0 ? Ar.Read<uint>() : Ar.Read<long>();
+            }
         }
     }
 }

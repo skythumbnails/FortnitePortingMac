@@ -28,6 +28,8 @@ namespace FortnitePorting.Models.Files;
 
 public partial class FileBrowserContext : ObservableObject
 {
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromMilliseconds(250);
+
     [ObservableProperty, NotifyPropertyChangedFor(nameof(SearchText))] private string _flatSearchText = string.Empty;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(SearchText))] private string _fileSearchText = string.Empty;
 
@@ -43,8 +45,11 @@ public partial class FileBrowserContext : ObservableObject
         }
     }
 
-    [ObservableProperty] private string _flatSearchFilter = string.Empty;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(HasFlatSearchFilter), nameof(ShowFlatPathPlain), nameof(FlatViewEmptyMessage))]
+    private string _flatSearchFilter = string.Empty;
     [ObservableProperty] private string _fileSearchFilter = string.Empty;
+    
+    [ObservableProperty] private bool _isDragDropEnabled = false;
 
     [ObservableProperty] private EFileFilterType _fileTypeFilter = EFileFilterType.All;
     private readonly Dictionary<EFileFilterType, string[]> _searchTermsByFilter = new()
@@ -68,6 +73,12 @@ public partial class FileBrowserContext : ObservableObject
     public MaterialIconKind FlatViewToggleIcon =>
         UseFlatView ? MaterialIconKind.Folder : MaterialIconKind.FormatListBulleted;
     public string FlatViewToggleToolTip => UseFlatView ? "File View" : "Flat View";
+
+    public bool HasFlatSearchFilter => !string.IsNullOrWhiteSpace(FlatSearchFilter);
+    public bool ShowFlatPathPlain => !HasFlatSearchFilter;
+    public string FlatViewEmptyMessage => HasFlatSearchFilter
+        ? "No Files Found"
+        : "Search or select a container to find files";
 
     [ObservableProperty] private bool _useRegex = false;
 
@@ -95,12 +106,40 @@ public partial class FileBrowserContext : ObservableObject
 
     private readonly Stack<TreeItem> _backStack = new();
     private readonly Stack<TreeItem> _forwardStack = new();
+    private readonly HashSet<FlatItem> _selectedFlatViewSet = [];
 
     private readonly TreeItem _parentTreeItem = new("Files", ENodeType.Folder)
     {
         Expanded = true,
         Selected = true
     };
+
+    private IDisposable? _flatViewSubscription;
+
+    public void Reset()
+    {
+        _flatViewSubscription?.Dispose();
+        _flatViewSubscription = null;
+
+        _parentTreeItem.DetachSourceNodes();
+        _parentTreeItem.FolderChildren.Clear();
+        _parentTreeItem.FileChildCount = 0;
+        _parentTreeItem.FolderChildCount = 0;
+
+        CurrentFolder = _parentTreeItem;
+
+        TreeViewCollection = [];
+        FileViewCollection = [];
+        FileViewStack = [];
+        SelectedFlatViewItems = [];
+        SelectedFileViewItems = [];
+        VfsFilterCollection = [];
+        FlatViewCollection = new ReadOnlyObservableCollection<FlatItem>([]);
+        _selectedFlatViewSet.Clear();
+
+        _backStack.Clear();
+        _forwardStack.Clear();
+    }
 
     public void Initialize(string? startPath = null)
     {
@@ -124,10 +163,11 @@ public partial class FileBrowserContext : ObservableObject
             .CombineLatest(vfsCheckedChanges.StartWith(Unit.Default))
             .Select(_ => CreateAssetFilter(FlatSearchFilter, UseRegex, VfsFilterCollection));
 
-        AppServices.Files.FlatViewAssetCache.Connect()
+        _flatViewSubscription = AppServices.Files.FlatViewAssetCache.Connect()
             .ObserveOn(RxApp.TaskpoolScheduler)
             .Filter(assetFilter)
             .Sort(SortExpressionComparer<FlatItem>.Ascending(x => x.Path))
+            .ObserveOn(RxApp.MainThreadScheduler)
             .Bind(out var flatCollection)
             .Subscribe();
 
@@ -147,8 +187,37 @@ public partial class FileBrowserContext : ObservableObject
         
         CurrentFolder = _parentTreeItem;
 
-        SelectedFileViewItems.CollectionChanged += (sender, args) => OnPropertyChanged(nameof(HasSelectedFiles));
-        SelectedFlatViewItems.CollectionChanged += (sender, args) => OnPropertyChanged(nameof(HasSelectedFiles));
+        SelectedFileViewItems.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSelectedFiles));
+        AttachFlatSelectionTracking(SelectedFlatViewItems);
+    }
+
+    public bool IsFlatItemSelected(FlatItem item) => _selectedFlatViewSet.Contains(item);
+
+    partial void OnSelectedFlatViewItemsChanged(ObservableCollection<FlatItem> value)
+    {
+        AttachFlatSelectionTracking(value);
+        OnPropertyChanged(nameof(HasSelectedFiles));
+    }
+
+    private void AttachFlatSelectionTracking(ObservableCollection<FlatItem> collection)
+    {
+        collection.CollectionChanged -= OnFlatSelectionCollectionChanged;
+        collection.CollectionChanged += OnFlatSelectionCollectionChanged;
+        SyncSelectedFlatViewSet(collection);
+    }
+
+    private void OnFlatSelectionCollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        if (sender is ObservableCollection<FlatItem> collection)
+            SyncSelectedFlatViewSet(collection);
+        OnPropertyChanged(nameof(HasSelectedFiles));
+    }
+
+    private void SyncSelectedFlatViewSet(ObservableCollection<FlatItem> collection)
+    {
+        _selectedFlatViewSet.Clear();
+        foreach (var item in collection)
+            _selectedFlatViewSet.Add(item);
     }
     
     public string[] GetSelectedFilePaths() => UseFlatView
@@ -160,13 +229,7 @@ public partial class FileBrowserContext : ObservableObject
             .Select(x => x.FilePath)
             .ToArray();
 
-    public void JumpTo(string path)
-    {
-        if (UseFlatView)
-            FlatViewJumpTo(path);
-        else
-            FileViewJumpTo(path);
-    }
+    public void JumpTo(string path) => FileViewJumpTo(path);
 
     public void ClearSearchFilter()
     {
@@ -250,65 +313,14 @@ public partial class FileBrowserContext : ObservableObject
         FileTypeFilter = EFileFilterType.All;
     }
 
-    public void RealizeFileData(TreeItem item)
+    public async Task RealizeFileDataAsync(TreeItem item)
     {
         if (item.FileBitmap is not null) return;
         if (item.Type == ENodeType.Folder) return;
 
-        if (UEParse.Provider.TryLoadPackage(item.FilePath, out var package))
-        {
-            for (var i = 0; i < package.ExportMapLength; i++)
-            {
-                var pointer = new FPackageIndex(package, i + 1).ResolvedObject;
-                if (pointer?.Object is null) continue;
-                if (!pointer.Name.Text.Equals(item.NameWithoutExtension) &&
-                    !pointer.Name.Text.Equals(item.NameWithoutExtension + "_C")) continue;
-
-                var obj = ((AbstractUePackage) package).ConstructObject(pointer.Class, package);
-                item.ExportType = obj.ExportType;
-
-                if (obj is UTexture2D && pointer.TryLoad(out var textureObj) &&
-                    textureObj is UTexture2D texture &&
-                    texture.Decode(maxMipSize: 128) is { } decodedTexture)
-                {
-                    item.FileBitmap = decodedTexture.ToWriteableBitmap();
-                    break;
-                }
-
-                var assetLoader = AssetLoading.Categories
-                    .SelectMany(category => category.Loaders)
-                    .FirstOrDefault(loader => loader.ClassNames.Contains(obj.ExportType));
-                if (assetLoader is not null && pointer.TryLoad(out var assetObj))
-                {
-                    item.FileBitmap = assetLoader.IconHandler(assetObj)?.Decode(maxMipSize: 128)?.ToWriteableBitmap();
-                    break;
-                }
-
-                if (obj.GetEditorIconBitmap() is { } objectBitmap)
-                {
-                    item.FileBitmap = objectBitmap;
-                    break;
-                }
-
-                if (Exporter.DetermineExportType(obj) is var exportType and not EExportType.None
-                    && $"avares://FortnitePorting/Assets/FN/{exportType}.png" is { } exportIconPath
-                    && AssetLoader.Exists(new Uri(exportIconPath)))
-                {
-                    item.FileBitmap = ImageExtensions.AvaresBitmap(exportIconPath);
-                    break;
-                }
-            }
-
-            if (item.ExportType is null &&
-                new FPackageIndex(package, 1).ResolvedObject is { } zeroPointer)
-            {
-                var zeroObj = ((AbstractUePackage) package).ConstructObject(zeroPointer.Class, package);
-                item.ExportType = zeroObj.ExportType;
-            }
-        }
-
-        item.FileBitmap ??= ImageExtensions.AvaresBitmap("avares://FortnitePorting/Assets/Unreal/DataAsset_64x.png");
-        item.ExportType ??= item.Extension;
+        var (icon, _, exportType) = await UEParse.ResolveGameFileAsync(item.FilePath);
+        item.FileBitmap = icon;
+        item.ExportType = exportType ?? item.Extension;
     }
 
     public void FileViewJumpTo(string path)
@@ -336,17 +348,6 @@ public partial class FileBrowserContext : ObservableObject
         var fileItem = FileViewCollection.FirstOrDefault(x => x.Name == fileName);
         if (fileItem is not null)
             SelectedFileViewItems = [fileItem];
-    }
-
-    public void FlatViewJumpTo(string directory)
-    {
-        var foundItem = AppServices.Files.FlatViewAssetCache.Lookup(directory);
-        if (!foundItem.HasValue) return;
-
-        FlatSearchFilter = string.Empty;
-        FlatSearchText = string.Empty;
-        SelectedFlatViewItems = [foundItem.Value];
-        UseFlatView = true;
     }
 
     public TreeItem? TreeViewJumpTo(string directory)
@@ -434,16 +435,34 @@ public partial class FileBrowserContext : ObservableObject
             .Select(x => x.VfsName)
             .ToHashSet();
 
+        var hasFilter = !string.IsNullOrWhiteSpace(filter);
+        if (!hasFilter && activeVfs.Count == 0)
+            return _ => false;
+
         return asset =>
         {
-            var pathMatch = useRegex
-                ? Regex.IsMatch(asset.Path, filter)
-                : MiscExtensions.Filter(asset.Path, filter);
-
             var vfsMatch = activeVfs.Count == 0
                            || activeVfs.Contains(asset.VfsName);
+            if (!vfsMatch)
+                return false;
 
-            return pathMatch && vfsMatch;
+            if (!hasFilter)
+                return true;
+
+            try
+            {
+                return useRegex
+                    ? Regex.IsMatch(asset.Path, filter, RegexOptions.None, RegexMatchTimeout)
+                    : MiscExtensions.Filter(asset.Path, filter);
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                return false;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
         };
     }
 
@@ -468,9 +487,20 @@ public partial class FileBrowserContext : ObservableObject
             .Where(item =>
             {
                 if (string.IsNullOrWhiteSpace(FileSearchFilter)) return true;
-                return UseRegex
-                    ? Regex.IsMatch(item.FilePath, FileSearchFilter)
-                    : MiscExtensions.Filter(item.FilePath, FileSearchFilter);
+                try
+                {
+                    return UseRegex
+                        ? Regex.IsMatch(item.FilePath, FileSearchFilter, RegexOptions.None, RegexMatchTimeout)
+                        : MiscExtensions.Filter(item.FilePath, FileSearchFilter);
+                }
+                catch (RegexMatchTimeoutException)
+                {
+                    return false;
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
             })
             .Where(item =>
             {

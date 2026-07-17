@@ -45,6 +45,7 @@ public partial class BlackHoleService : ObservableObject, IService
     { 
         TaskService.RunDispatcher(() =>
         {
+            TimeWasterVM.LoadResources();
             Content = new TimeWasterView(isMinigame);
         });
     }

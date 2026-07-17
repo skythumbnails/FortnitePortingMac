@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.AssetRegistry.Readers;
 using CUE4Parse.UE4.Exceptions;
@@ -66,16 +64,12 @@ public class FNameTableArchiveReader : FAssetRegistryArchive
     public override void SerializeTagsAndBundles(FAssetData assetData)
     {
         var size = baseArchive.Read<int>();
-        // This format stores tags inline, so we must still READ each pair to advance the archive —
-        // but FortnitePorting never reads asset tags, so we discard them instead of building a
-        // per-asset Dictionary<FName,string> (hundreds of thousands across a full build). The
-        // transient strings from ReadFString fall straight out of scope for the GC.
+        var ret = new Dictionary<FName, string>();
         for (var i = 0; i < size; i++)
         {
-            ReadFName();
-            baseArchive.ReadFString();
+            ret[ReadFName()] = baseArchive.ReadFString();
         }
-        assetData.TagsAndValues = FAssetData.EmptyTags;
+        assetData.TagsAndValues = ret;
         assetData.TaggedAssetBundles = new FAssetBundleData();
     }
 

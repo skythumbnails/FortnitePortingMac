@@ -16,6 +16,8 @@ using CUE4Parse.Utils;
 using FortnitePorting.Application;
 using FortnitePorting.Exporting.Custom;
 using FortnitePorting.Extensions;
+using FortnitePorting.Framework;
+using FortnitePorting.Models.Assets.Asset;
 using FortnitePorting.Models.Assets.Base;
 using FortnitePorting.Models.Assets.Custom;
 using FortnitePorting.Models.Assets.Loading;
@@ -23,10 +25,10 @@ using SkiaSharp;
 
 namespace FortnitePorting.Services;
 
-public partial class AssetLoaderService : ObservableObject, IService
+public partial class AssetLoaderService : ObservableObject, IService, IResettable
 {
     [ObservableProperty] private AssetLoader? _activeLoader;
-    [ObservableProperty] private ReadOnlyObservableCollection<BaseAssetItem> _activeCollection;
+    [ObservableProperty] private ReadOnlyObservableCollection<BaseAssetItem> _activeCollection = new([]);
     
     public List<AssetLoaderCategory> Categories { get; set; } =
     [
@@ -41,11 +43,19 @@ public partial class AssetLoaderService : ObservableObject, IService
                     DisallowedNames = ["Bean_", "BeanCharacter"],
                     PlaceholderIconPath = "FortniteGame/Content/Athena/Prototype/Textures/T_Placeholder_Item_Outfit",
                     LoadHiddenAssets = true,
-                    IconHandler = asset =>
+                    LowResIconHandler = asset =>
                     {
-                        var previewImage = AssetLoader.GetIcon(asset);
+                        var previewImage = AssetLoader.GetLowResIcon(asset);
                         if (previewImage is null && asset.TryGetValue(out UObject hero, "HeroDefinition"))
-                            previewImage = AssetLoader.GetIcon(hero);
+                            previewImage = AssetLoader.GetLowResIcon(hero);
+
+                        return previewImage;
+                    },
+                    HighResIconHandler = asset =>
+                    {
+                        var previewImage = AssetLoader.GetHighResIcon(asset);
+                        if (previewImage is null && asset.TryGetValue(out UObject hero, "HeroDefinition"))
+                            previewImage = AssetLoader.GetHighResIcon(hero);
 
                         return previewImage;
                     }
@@ -59,11 +69,19 @@ public partial class AssetLoaderService : ObservableObject, IService
                 {
                     ClassNames = ["AthenaPickaxeItemDefinition"],
                     HideNames = ["Dev_", "TBD_"],
-                    IconHandler = asset =>
+                    LowResIconHandler = asset =>
                     {
-                        var previewImage = AssetLoader.GetIcon(asset);
+                        var previewImage = AssetLoader.GetLowResIcon(asset);
                         if ((previewImage is null || previewImage.Name.Contains("Placeholder", StringComparison.OrdinalIgnoreCase)) && asset.TryGetValue(out UObject weapon, "WeaponDefinition"))
-                            previewImage = AssetLoader.GetIcon(weapon);
+                            previewImage = AssetLoader.GetLowResIcon(weapon);
+
+                        return previewImage;
+                    },
+                    HighResIconHandler = asset =>
+                    {
+                        var previewImage = AssetLoader.GetHighResIcon(asset);
+                        if ((previewImage is null || previewImage.Name.Contains("Placeholder", StringComparison.OrdinalIgnoreCase)) && asset.TryGetValue(out UObject weapon, "WeaponDefinition"))
+                            previewImage = AssetLoader.GetHighResIcon(weapon);
 
                         return previewImage;
                     }
@@ -232,7 +250,7 @@ public partial class AssetLoaderService : ObservableObject, IService
                 },
                 new AssetLoader(EExportType.WeaponMod)
                 {
-                    ManuallyDefinedAssets = new Lazy<ManuallyDefinedAsset[]>(() =>
+                    ManuallyDefinedAssetsFactory = () =>
                     {
                         string[] weaponModClasses = ["FortWeaponModItemDefinition", "FortWeaponModItemDefinitionMagazine", "FortWeaponModItemDefinitionOptic"];
                         var weaponModTable = UEParse.Provider.LoadPackageObject<UDataTable>("WeaponMods/DataTables/WeaponModOverrideData");
@@ -246,7 +264,7 @@ public partial class AssetLoaderService : ObservableObject, IService
 
                             var icon = AssetLoader.GetIcon(asset);
                             if (icon is null) continue;
-                            
+
                             var tag = asset.GetOrDefault<FGameplayTag>("PluginTuningTag").ToString();
 
                             var defaultModData = asset.GetOrDefault<FStructFallback?>("DefaultModData");
@@ -289,7 +307,7 @@ public partial class AssetLoaderService : ObservableObject, IService
                         }
 
                         return weaponModAssets.ToArray();
-                    })
+                    }
                 },
                 new AssetLoader(EExportType.Resource)
                 {
@@ -311,14 +329,15 @@ public partial class AssetLoaderService : ObservableObject, IService
                 new AssetLoader(EExportType.Vehicle)
                 {
                     ClassNames = ["FortVehicleItemDefinition"],
-                    IconHandler = asset => asset.GetVehicleMetadata<UTexture2D>("Icon", "SmallPreviewImage", "LargePreviewImage"),
+                    LowResIconHandler = asset => asset.GetVehicleMetadata<UTexture2D>("Icon", "SmallPreviewImage"),
+                    HighResIconHandler = asset => asset.GetVehicleMetadata<UTexture2D>("Icon", "LargePreviewImage"),
                     DisplayNameHandler = asset => asset.GetVehicleMetadata<FText>("DisplayName", "ItemName")?.Text,
                     HideRarity = true,
                     
                 },
                 new AssetLoader(EExportType.Wildlife)
                 {
-                    ManuallyDefinedAssets = new Lazy<ManuallyDefinedAsset[]>(
+                    ManuallyDefinedAssetsFactory = () =>
                     [
                         new ManuallyDefinedAsset
                         {
@@ -398,7 +417,7 @@ public partial class AssetLoaderService : ObservableObject, IService
                             AssetPath = "/TidalCrane_Swarm_Boss/Assets/Meshes/TidalCrane_Boss_Creature",
                             IconPath = "/TidalCrane_Swarm_Boss/Gameplay/Icon/T_Icon_BR_BugQueen"
                         }
-                    ]),
+                    ],
                     HideRarity = true
                 },
                 new AssetLoader(EExportType.Sprite)
@@ -519,6 +538,17 @@ public partial class AssetLoaderService : ObservableObject, IService
         }
     ];
     
+    public void Reset()
+    {
+        foreach (var loader in Categories.SelectMany(category => category.Loaders))
+            loader.Reset();
+
+        AssetItem.ResetCaches();
+
+        ActiveLoader = null;
+        ActiveCollection = new ReadOnlyObservableCollection<BaseAssetItem>([]);
+    }
+
     public async Task Load(EExportType type)
     {
         if (type is EExportType.None) return;
@@ -526,7 +556,7 @@ public partial class AssetLoaderService : ObservableObject, IService
         Set(type);
         await ActiveLoader.Load();
     }
-    
+
     public AssetLoader Get(EExportType type)
     {
         if (!Enum.IsDefined(type))

@@ -1,5 +1,4 @@
 using CUE4Parse.UE4.Assets.Exports.CustomizableObject.Mutable;
-using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Versions;
@@ -16,11 +15,11 @@ public class UCustomizableObject : UObject
     {
         base.Deserialize(Ar, validPos);
 
-        InternalVersion = Ar.Game >= EGame.GAME_UE5_6 ? Ar.Read<long>() : Ar.Read<int>();
+        InternalVersion = Ar.Game >= GAME_UE5_6 ? Ar.Read<long>() : Ar.Read<int>();
         if (InternalVersion != -1)
             Model = new FModel(new FMutableArchive(Ar));
 
-        if (Ar.Game is EGame.GAME_LordsoftheFallen)
+        if (Ar.Game is GAME_LordsoftheFallen)
         {
              CustomGameData = new FByteBulkData(Ar);
         }

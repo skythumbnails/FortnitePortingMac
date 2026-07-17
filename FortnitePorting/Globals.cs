@@ -1,5 +1,6 @@
 global using static FortnitePorting.Application.AppServices;
 
+using System.Reflection;
 using Avalonia.Platform.Storage;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using FortnitePorting.Models;
@@ -8,8 +9,14 @@ namespace FortnitePorting;
 
 public static class Globals
 {
+    public static readonly FPVersion Version = new(
+        Assembly.GetEntryAssembly()!
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
+            .InformationalVersion
+            .Split('+')[0]);
+
     public static string VersionString => Version.GetDisplayString();
-    public static readonly FPVersion Version = new(4, 1, 9, 2);
+    public static bool IsDevBuild => !string.IsNullOrEmpty(Version.Identifier);
     public const string ApplicationTag = "FortnitePorting";
     
     public static readonly FilePickerFileType MappingsFileType = new("Unreal Mappings") { Patterns = [ "*.usmap" ] };
@@ -26,24 +33,7 @@ public static class Globals
     
     public static readonly FilePickerFileType PlaylistFileType = new("Fortnite Porting Playlist") { Patterns = [ "*.fp.playlist" ] };
     public static readonly FilePickerFileType ChatAttachmentFileType = new("Image") { Patterns = [ "*.png", "*.jpg", "*.jpeg" ] };
-    public static readonly FilePickerFileType BlenderFileType = new("Blender")
-    {
-        Patterns =
-        [
-            "blender.exe",   // Windows
-            "Blender",       // macOS app bundle binary
-            "blender",       // Linux
-            "*.app"          // macOS app bundles (Patterns alone don't enable .app selection)
-        ],
-        // macOS NSOpenPanel hides / greys out .app bundles unless the panel is told they're
-        // a permitted type. Listing the bundle UTI tells AppKit to make them selectable.
-        AppleUniformTypeIdentifiers =
-        [
-            "com.apple.application-bundle",
-            "public.unix-executable",
-            "public.executable"
-        ]
-    };
+    public static readonly FilePickerFileType BlenderFileType = new("Blender") { Patterns = ["blender.exe"] };
     public static readonly FilePickerFileType UnrealProjectFileType = new("Unreal Project") { Patterns = ["*.uproject"] };
     
     public static readonly FGuid ZERO_GUID = new();

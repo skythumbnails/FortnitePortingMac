@@ -1,42 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
+        <Version>4.0.0-dev</Version>
+        <OutputType>WinExe</OutputType>
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+        <ApplicationManifest>Application/app.manifest</ApplicationManifest>
         <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
         <ApplicationIcon>Assets/LogoRebrand.ico</ApplicationIcon>
-        <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
+        <RuntimeIdentifier>win-x64</RuntimeIdentifier>
         <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-
-        <!-- Memory tuning. Workstation GC (single heap that returns memory to the OS) and
-             NON-concurrent: background/concurrent GC trades footprint for latency — it leaves more
-             floating garbage and compacts gen2 less, so RSS stays high. A blocking GC fully compacts
-             and decommits, which is what we want here since the priority is memory over a few ms of
-             GC pause during a tab load.
-
-             NOTE: a System.GC.HeapHardLimit was tried (4-4.5 GiB) to hard-cap total RAM at ~5 GB and
-             REMOVED — On-Demand mode legitimately needs ~4.5 GB (it indexes the entire live Fortnite
-             build: ~340 archives + a 537k-asset registry), and any hard limit near 5 GB turns normal
-             transient allocations during a tab load (DynamicData list growth, texture decode) into
-             OutOfMemory crashes. A cap there converts "high memory" into "crash on browse", which is
-             worse. We instead drive the footprint down structurally (below) with no crash risk; for a
-             genuinely smaller footprint, point the app at a local installed archive instead of On-Demand. -->
-        <ServerGarbageCollection>false</ServerGarbageCollection>
-        <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     </PropertyGroup>
-
-    <ItemGroup>
-        <!-- Aggressively decommit and hand freed segments back to the OS (1=light … 9=aggressive).
-             Without this the .NET heap holds memory it has reclaimed internally, so RSS stays high
-             after browsing even once thumbnails are evicted. 9 = maximum: the browsing workload
-             allocates in bursts (tab loads) then idles, exactly the pattern this rewards. -->
-        <RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="9" Trim="false" />
-        <!-- Don't retain decommitted virtual memory — return it to the OS instead of reserving it for
-             future growth. Directly lowers the footprint Activity Monitor reports after a GC. -->
-        <RuntimeHostConfigurationOption Include="System.GC.RetainVM" Value="false" Trim="false" />
-    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Avalonia" />
@@ -57,6 +32,8 @@
         <PackageReference Include="Microsoft.AspNetCore.DataProtection" />
         <PackageReference Include="Microsoft.AspNetCore.DataProtection.Extensions" />
         <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+        <PackageReference Include="NAudio" />
+        <PackageReference Include="NAudio.Vorbis" />
         <PackageReference Include="NodifyAvalonia" />
         <PackageReference Include="ReactiveUI" />
         <PackageReference Include="RestSharp" />

@@ -1,11 +1,8 @@
-using System;
-using System.IO;
 using CUE4Parse_Conversion.PoseAsset;
 using CUE4Parse_Conversion.PoseAsset.UEFormat;
 using CUE4Parse.UE4.Assets.Exports.Rig;
 using CUE4Parse.UE4.Writers;
 using CUE4Parse.Utils;
-using Serilog;
 
 namespace CUE4Parse_Conversion.DNA;
 

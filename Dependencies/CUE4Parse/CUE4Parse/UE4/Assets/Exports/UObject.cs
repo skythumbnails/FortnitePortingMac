@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using CUE4Parse.MappingsProvider;
@@ -14,7 +11,6 @@ using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.UE4.Versions;
 using CUE4Parse.Utils;
 using Newtonsoft.Json;
-using Serilog;
 
 namespace CUE4Parse.UE4.Assets.Exports;
 
@@ -100,6 +96,7 @@ public abstract class AbstractPropertyHolder : IPropertyHolder
 [SkipObjectRegistration]
 public class UObject : AbstractPropertyHolder
 {
+    
     public string Name { get; set; } = null!;
     public ResolvedObject? Class;
     public ResolvedObject? Outer;
@@ -144,9 +141,17 @@ public class UObject : AbstractPropertyHolder
         
         UPropertyCache.ApplyProperties(this, this);
 
-        if (Ar.Game >= EGame.GAME_UE4_0 && !Flags.HasFlag(EObjectFlags.RF_ClassDefaultObject) && Ar.ReadBoolean() && Ar.Position + 16 <= validPos)
+        if (Ar.Game >= GAME_UE4_0 && !Flags.HasFlag(EObjectFlags.RF_ClassDefaultObject))
         {
-            ObjectGuid = Ar.Read<FGuid>();
+            var hasGuid = Ar.ReadBoolean();
+
+            if (hasGuid)
+            {
+                if (Ar.Position + 16 > validPos)
+                    throw new ParserException(Ar, "Unexpected EOF in ObjectGuid");
+
+                ObjectGuid = Ar.Read<FGuid>();
+            }
         }
 
         if (FUE5MainStreamObjectVersion.Get(Ar) < FUE5MainStreamObjectVersion.Type.SparseClassDataStructSerialization || !Flags.HasFlag(EObjectFlags.RF_ClassDefaultObject))

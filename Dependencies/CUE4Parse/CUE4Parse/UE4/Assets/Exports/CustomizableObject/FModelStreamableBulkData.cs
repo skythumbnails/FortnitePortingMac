@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Assets.Readers;
 using CUE4Parse.UE4.Versions;
@@ -15,7 +14,7 @@ public class FModelStreamableBulkData
     public FModelStreamableBulkData(FAssetArchive Ar)
     {
         ModelStreamables = Ar.ReadMap(Ar.Read<uint>, () => new FMutableStreamableBlock(Ar));
-        if (Ar.Game < EGame.GAME_UE5_8)
+        if (Ar.Game < GAME_UE5_8)
         {
             ClothingStreamables = Ar.ReadMap(Ar.Read<uint>, () => new FClothingStreamable(Ar));
             RealTimeMorphStreamables = Ar.ReadMap(Ar.Read<uint>, () => new FRealTimeMorphStreamable(Ar));

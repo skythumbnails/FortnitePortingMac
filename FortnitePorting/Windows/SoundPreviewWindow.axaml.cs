@@ -8,7 +8,7 @@ using FortnitePorting.WindowModels;
 
 namespace FortnitePorting.Windows;
 
-public partial class SoundPreviewWindow : WindowBase<SoundPreviewWindowModel>
+public partial class SoundPreviewWindow : WindowBase<SoundPreviewWindowModel>, IPreviewWindow
 {
     public static SoundPreviewWindow? Instance;
     
@@ -46,7 +46,7 @@ public partial class SoundPreviewWindow : WindowBase<SoundPreviewWindowModel>
     {
         base.OnClosed(e);
 
-        // Instance?.WindowModel.OutputDevice.Dispose(); // audio disabled on macOS
+        Instance?.WindowModel.OutputDevice.Dispose();
         Instance = null;
     }
 

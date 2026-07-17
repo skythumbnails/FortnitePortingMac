@@ -74,43 +74,16 @@ def link_texture_node(nodes, links, node, target_node, mappings, x, y):
 material_hash_cache = {}
 material_name_cache = {}
 
-
-def is_datablock_alive(datablock):
-    # These caches persist for the whole Blender session and hold references to bpy datablocks
-    # (materials/images). If the user deletes a previously-imported model, undoes, or Blender
-    # orphan-purges, those datablocks are freed and the cached Python wrapper becomes a dangling
-    # "StructRNA of type X has been removed" — any attribute access raises ReferenceError. Probe
-    # safely so the cache can be pruned WITHOUT triggering the very crash we're avoiding.
-    if datablock is None:
-        return False
-    try:
-        _ = datablock.name
-        return True
-    except ReferenceError:
-        return False
-
-
-def get_live_cached(cache, key):
-    # Returns the cached datablock only if it's still alive; drops dead entries.
-    value = cache.get(key)
-    if value is None:
-        return None
-    if is_datablock_alive(value):
-        return value
-    cache.pop(key, None)
-    return None
-
-
 class MaterialImportContext:
-
+    
     def __init__(self):
         for key, mat in list(material_hash_cache.items()):
-            if not is_datablock_alive(mat):
-                material_hash_cache.pop(key, None)
-
+            if not mat.name:
+                material_hash_cache.pop(key)
+                
         for key, mat in list(material_name_cache.items()):
-            if not is_datablock_alive(mat):
-                material_name_cache.pop(key, None)
+            if not mat.name:
+                material_name_cache.pop(key)
     
     def import_material(self, material_slot, material_data, meta, as_material_data=False):
 
@@ -174,13 +147,13 @@ class MaterialImportContext:
 
         hash_key = hash_code(material_hash)
 
-        if existing_material := get_live_cached(material_hash_cache, hash_key):
+        if existing_material := material_hash_cache.get(hash_key):
             if not as_material_data:
                 material_slot.material = existing_material
                 return
 
         # same name but different hash
-        if (name_existing := get_live_cached(material_name_cache, material_name.casefold())) and name_existing.get("Hash") != hash_key:
+        if (name_existing := material_name_cache.get(material_name.casefold())) and name_existing.get("Hash") != hash_key:
             material_name += f"_{hash_key}"
 
         if not as_material_data and material_slot.material.name.casefold() != material_name.casefold():

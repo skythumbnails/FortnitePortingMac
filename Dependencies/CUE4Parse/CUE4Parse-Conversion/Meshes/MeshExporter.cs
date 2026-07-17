@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
@@ -10,19 +7,17 @@ using CUE4Parse_Conversion.Materials;
 using CUE4Parse_Conversion.Meshes.glTF;
 using CUE4Parse_Conversion.Meshes.PSK;
 using CUE4Parse_Conversion.Meshes.UEFormat;
-using CUE4Parse.UE4.Assets;
 using CUE4Parse.UE4.Assets.Exports.Component.SplineMesh;
 using CUE4Parse.UE4.Assets.Exports.Nanite;
 using CUE4Parse.UE4.Assets.Exports.Rig;
-using CUE4Parse.UE4.Objects.PhysicsEngine;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.Utils;
-using Serilog;
 
 namespace CUE4Parse_Conversion.Meshes
 {
     public class MeshExporter : ExporterBase
     {
+
         public readonly List<Mesh> MeshLods;
         public Mesh? NaniteMesh;
         public readonly List<DNAExporter> DNAAssets = [];
@@ -35,7 +30,7 @@ namespace CUE4Parse_Conversion.Meshes
 
             if (!originalSkeleton.TryConvert(out var bones, out _) || bones.Count == 0)
             {
-                Log.Warning($"Skeleton '{ExportName}' has no bone");
+                Log.Warning("Skeleton '{ExportName}' has no bone", ExportName);
                 return;
             }
 
@@ -69,7 +64,7 @@ namespace CUE4Parse_Conversion.Meshes
 
             if (!originalMesh.TryConvert(splineMeshComponent, out var convertedMesh, out var naniteLod, options.NaniteMeshFormat) || convertedMesh.LODs.Count == 0)
             {
-                Log.Logger.Warning($"Mesh '{ExportName}' has no LODs");
+                Log.Warning("Mesh '{ExportName}' has no LODs", ExportName);
                 return;
             }
 
@@ -124,7 +119,7 @@ namespace CUE4Parse_Conversion.Meshes
                 i++;
                 if (lod.SkipLod)
                 {
-                    Log.Warning($"LOD {i} in mesh '{ExportName}' should be skipped");
+                    Log.Warning("LOD {LodIndex} in mesh '{ExportName}' should be skipped", i, ExportName);
                     continue;
                 }
 
@@ -165,7 +160,7 @@ namespace CUE4Parse_Conversion.Meshes
 
             if (!originalMesh.TryConvert(out var convertedMesh) || convertedMesh.LODs.Count == 0)
             {
-                Log.Warning($"Mesh '{ExportName}' has no LODs");
+                Log.Warning("Mesh '{ExportName}' has no LODs", ExportName);
                 return;
             }
 
@@ -207,7 +202,7 @@ namespace CUE4Parse_Conversion.Meshes
                 var lod = convertedMesh.LODs[lodIndex];
                 if (lod.SkipLod)
                 {
-                    Log.Warning($"LOD {i} in mesh '{ExportName}' should be skipped");
+                    Log.Warning("LOD {LodIndex} in mesh '{ExportName}' should be skipped", i, ExportName);
                     continue;
                 }
 

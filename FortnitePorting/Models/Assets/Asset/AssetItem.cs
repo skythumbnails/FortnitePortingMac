@@ -10,8 +10,10 @@ using CUE4Parse.Utils;
 using FortnitePorting.Exporting;
 using FortnitePorting.Extensions;
 using FortnitePorting.Framework;
+using FortnitePorting.Models.Chat;
 using FortnitePorting.Models.Clipboard;
 using FortnitePorting.Models.Fortnite;
+using FortnitePorting.Services;
 using FortnitePorting.Views;
 using FortnitePorting.Windows;
 using Newtonsoft.Json;
@@ -41,21 +43,20 @@ public class AssetItem : Base.BaseAssetItem
 
     private static ConcurrentDictionary<string, UFortItemSeriesDefinition> SeriesCache = [];
     private static ConcurrentDictionary<string, WriteableBitmap> BackgroundCache = [];
-    
-    // Package path of the icon texture; the texture itself is loaded per decode, never retained.
-    private readonly string? _iconPath;
 
+    public static void ResetCaches()
+    {
+        SeriesCache.Clear();
+        
+        foreach (var bitmap in BackgroundCache.Values)
+            bitmap.Dispose();
+        BackgroundCache.Clear();
+    }
+    
     public AssetItem(AssetItemCreationArgs args)
     {
         Id = Guid.NewGuid();
         CreationData = args;
-
-        // Detach the loaded icon texture immediately: keep only its package path and let the
-        // UTexture2D (with its compressed mip bytes) be garbage collected. LoadBitmap re-loads
-        // it from the provider on demand. Retaining the texture on every grid item was the
-        // single largest idle-memory consumer in the app (GBs across a few thousand cosmetics).
-        _iconPath = args.Icon?.GetPathName();
-        args.Icon = null;
 
         IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.Object.GetPathName());
 
@@ -79,64 +80,18 @@ public class AssetItem : Base.BaseAssetItem
             Series = SeriesCache.GetOrAdd(seriesPackage.Name,
                 _ => seriesPackage.Load<UFortItemSeriesDefinition>());
         }
-
-        // Everything the grid needs (rarity, set, season, series, icon path) is now captured, so
-        // drop the parsed asset object. It re-parses on demand for export/preview/styles. This is
-        // the main lever that keeps a loaded tab from pinning thousands of parsed UObjects in RAM.
-        CreationData.ReleaseObject();
     }
 
-    // Grid thumbnails render small, so there's no reason to decode/hold each cosmetic icon at its
-    // native resolution (commonly 512x512–1024x1024 RGBA = 1–4 MB). Downscaling to this cap cuts
-    // per-thumbnail memory 4–16x. 256px stays crisp on retina at the grid's display size and is
-    // still a reasonable resolution for the "copy icon" action.
-    private const int IconDisplayMaxDimension = 256;
-
-    // Shared blank icon for assets whose texture can't be resolved (e.g. new asset classes whose
-    // icon property didn't parse, or archives missing the placeholder). Items still render as
-    // rarity cards instead of being dropped or stuck failing.
-    private static readonly Lazy<WriteableBitmap> BlankIcon = new(() =>
+    public async Task LoadBitmapAsync()
     {
-        using var blank = new SKBitmap(new SKImageInfo(2, 2, SKColorType.Bgra8888, SKAlphaType.Premul));
-        return blank.ToWriteableBitmap();
-    });
-
-    public void LoadBitmap()
-    {
-        // Background first: even if the icon fails below, the item shows as a rarity card.
+        if (CreationData.IconPath is not { } iconPath) return;
+        
+        var texture = await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath);
+        using var iconBitmap = texture?.Decode()?.ToSkBitmap();
+        if (iconBitmap is null) return;
+        
+        IconDisplayImage = iconBitmap.ToWriteableBitmap();
         BackgroundImage = CreateBackgroundImage();
-
-        // Lazy-load the icon texture for this decode only — it goes out of scope right after,
-        // so its compressed mip bytes don't accumulate across the grid.
-        var iconTexture = _iconPath is not null
-            ? UEParse.Provider.SafeLoadPackageObject<UTexture2D>(_iconPath)
-            : null;
-        if (iconTexture is null)
-        {
-            IconDisplayImage = BlankIcon.Value;
-            return;
-        }
-
-        // `using` matters: ToWriteableBitmap copies pixels into the WriteableBitmap's own buffer,
-        // so these intermediate SKBitmaps can be released immediately. Previously the decoded
-        // SKBitmap was never disposed, leaking native Skia memory on every single decode.
-        using var decoded = iconTexture.Decode()!.ToSkBitmap();
-        using var scaled = DownscaleToFit(decoded, IconDisplayMaxDimension);
-        IconDisplayImage = (scaled ?? decoded).ToWriteableBitmap();
-    }
-
-    // Returns a downscaled copy when the source exceeds maxDimension, or null when it's already
-    // small enough (caller then uses the original). Caller owns disposing the returned bitmap.
-    private static SKBitmap? DownscaleToFit(SKBitmap source, int maxDimension)
-    {
-        var longest = Math.Max(source.Width, source.Height);
-        if (longest <= maxDimension) return null;
-
-        var scale = maxDimension / (float) longest;
-        var width = Math.Max(1, (int) (source.Width * scale));
-        var height = Math.Max(1, (int) (source.Height * scale));
-        var info = new SKImageInfo(width, height, source.ColorType, source.AlphaType);
-        return source.Resize(info, SKFilterQuality.Medium);
     }
 
     protected sealed override WriteableBitmap CreateBackgroundImage()
@@ -181,7 +136,7 @@ public class AssetItem : Base.BaseAssetItem
     {
         Navigation.App.Open<FilesView>();
 
-        var assetPath = UEParse.Provider.FixPath(CreationData.Object.GetPathName().SubstringBefore("."));
+        var assetPath = UEParse.Provider!.FixPath(CreationData.Object.GetPathName().SubstringBefore("."));
         FilesVM.JumpTo(assetPath);
         
         AppWM.Window.BringToTop();
@@ -194,14 +149,25 @@ public class AssetItem : Base.BaseAssetItem
 
     public override async Task PreviewProperties()
     {
-        var assets = await UEParse.Provider.LoadAllObjectsAsync(Exporter.FixPath(CreationData.Object.GetPathName()));
+        var assets = await UEParse.Provider!.LoadAllObjectsAsync(Exporter.FixPath(CreationData.Object.GetPathName()));
         var json = JsonConvert.SerializeObject(assets, Formatting.Indented);
         PropertiesPreviewWindow.Preview(CreationData.Object.Name, json);
     }
     
-    public override async Task CopyIcon(bool withBackground = false)
+    public override async Task SaveIcon()
     {
-        await AvaloniaClipboard.SetImageAsync(IconDisplayImage);
+        var iconPath = CreationData.HighResIconPath ?? CreationData.LowResIconPath;
+        if (iconPath is null || await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath) is not { } texture)
+        {
+            Info.Message("Save Icon", "Failed to save icon, no valid icon stored.");
+            return;
+        }
+        
+        if (await App.SaveFileDialog(suggestedFileName: texture.Name, Globals.PNGFileType) is not { } savePath) 
+            return;
+
+        using var bitmap = texture.Decode()?.ToSkBitmap()?.ToWriteableBitmap();
+        bitmap?.Save(savePath);
     }
     
     public override void Favorite()
@@ -216,5 +182,16 @@ public class AssetItem : Base.BaseAssetItem
             AppSettings.Application.FavoriteAssets.Remove(path);
             IsFavorite = false;
         }
+    }
+
+    public override async Task SendToUser()
+    {
+        var path = CreationData.Object.GetPathName();
+        var (icon, displayName, _) = await UEParse.ResolveGameFileAsync(path);
+        TaskService.RunDispatcher(() =>
+        {
+            ChatVM.PendingGameFile = new PendingGameFileAttachment(path, icon, displayName);
+            Navigation.App.Open<ChatView>();
+        });
     }
 }
