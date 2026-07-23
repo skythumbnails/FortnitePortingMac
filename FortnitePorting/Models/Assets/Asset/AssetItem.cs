@@ -58,7 +58,7 @@ public class AssetItem : Base.BaseAssetItem
         Id = Guid.NewGuid();
         CreationData = args;
 
-        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.ObjectPath ?? string.Empty);
+        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.Object.GetPathName());
 
         Rarity = CreationData.Object.GetOrDefault("Rarity", EFortRarity.Uncommon);
         
@@ -80,37 +80,36 @@ public class AssetItem : Base.BaseAssetItem
             Series = SeriesCache.GetOrAdd(seriesPackage.Name,
                 _ => seriesPackage.Load<UFortItemSeriesDefinition>());
         }
-
-        // Everything the grid needs (rarity, set, season, series, icon path) is now captured, so
-        // drop the parsed asset object. It re-parses on demand for export/preview/styles. This is
-        // the main lever that keeps a loaded tab from pinning thousands of parsed UObjects in RAM.
-        CreationData.ReleaseObject();
-    }
-
-    // Grid thumbnails render small — cap decodes at 256px (4-16x less memory than native icon res).
-    private const int IconDisplayMaxDimension = 256;
-
-    private static SKBitmap? DownscaleToFit(SKBitmap source, int maxDimension)
-    {
-        var longest = Math.Max(source.Width, source.Height);
-        if (longest <= maxDimension) return null;
-        var scale = maxDimension / (float) longest;
-        var info = new SKImageInfo(Math.Max(1, (int) (source.Width * scale)),
-            Math.Max(1, (int) (source.Height * scale)), source.ColorType, source.AlphaType);
-        return source.Resize(info, SKFilterQuality.Medium);
     }
 
     public async Task LoadBitmapAsync()
     {
         if (CreationData.IconPath is not { } iconPath) return;
 
-        var texture = await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath);
-        using var iconBitmap = texture?.Decode()?.ToSkBitmap();
-        if (iconBitmap is null) return;
+        IconDisplayImage = await TryLoadIconBitmapAsync(iconPath);
 
-        using var scaled = DownscaleToFit(iconBitmap, IconDisplayMaxDimension);
-        IconDisplayImage = (scaled ?? iconBitmap).ToWriteableBitmap();
+        if (IconDisplayImage is null)
+        {
+            var placeholderPath = AssetLoading.Get(CreationData.ExportType).PlaceholderIconPath;
+            if (!string.Equals(iconPath, placeholderPath, StringComparison.OrdinalIgnoreCase))
+                IconDisplayImage = await TryLoadIconBitmapAsync(placeholderPath);
+        }
+
         BackgroundImage = CreateBackgroundImage();
+    }
+
+    private static async Task<WriteableBitmap?> TryLoadIconBitmapAsync(string iconPath)
+    {
+        try
+        {
+            var texture = await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath);
+            using var iconBitmap = texture?.Decode()?.ToSkBitmap();
+            return iconBitmap?.ToWriteableBitmap();
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     protected sealed override WriteableBitmap CreateBackgroundImage()

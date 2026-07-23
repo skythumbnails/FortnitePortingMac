@@ -35,61 +35,7 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     public async Task AddInstallation()
     {
-        string blenderPath;
-
-        if (OperatingSystem.IsMacOS())
-        {
-            // Avalonia's StorageProvider greys out .app bundles on macOS (even with the bundle UTI
-            // set on the file type), so the user can't select Blender.app. Shell out to AppleScript,
-            // whose `choose file of type` dialog treats .app bundles as selectable the way Finder
-            // does, then descend into the bundle to the actual executable.
-            string? bundlePath = null;
-            try
-            {
-                using var process = new Process();
-                process.StartInfo = new ProcessStartInfo
-                {
-                    FileName = "/usr/bin/osascript",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                process.StartInfo.ArgumentList.Add("-e");
-                process.StartInfo.ArgumentList.Add(
-                    "POSIX path of (choose file of type {\"com.apple.application-bundle\"} " +
-                    "default location (POSIX file \"/Applications\") " +
-                    "with prompt \"Select Blender.app\")");
-                process.Start();
-                var output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                if (process.ExitCode == 0) bundlePath = output.Trim();
-            }
-            catch
-            {
-                // osascript missing/blocked — user can retry.
-            }
-
-            if (string.IsNullOrEmpty(bundlePath)) return;
-
-            bundlePath = bundlePath.TrimEnd('/');
-            blenderPath = bundlePath.EndsWith(".app", System.StringComparison.OrdinalIgnoreCase)
-                ? System.IO.Path.Combine(bundlePath, "Contents", "MacOS", "Blender")
-                : bundlePath;
-
-            if (!System.IO.File.Exists(blenderPath))
-            {
-                Info.Message("Blender Plugin",
-                    $"Could not find the Blender binary inside {bundlePath}.\nExpected: {blenderPath}",
-                    InfoBarSeverity.Error, autoClose: false);
-                return;
-            }
-        }
-        else
-        {
-            if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } filePath) return;
-            blenderPath = filePath;
-        }
+        if (await App.BrowseFileDialog(fileTypes: Globals.BlenderFileType) is not { } blenderPath) return;
 
         var blenderVersion = BlenderInstallation.TryGetVersion(blenderPath);
         if (blenderVersion is null)
@@ -210,37 +156,8 @@ public partial class BlenderPluginViewModel : ViewModelBase
 
     private static bool TryGetBlenderProcess(string path, [MaybeNullWhen(false)] out Process process)
     {
-        // Match a running Blender to the selected executable. The old implementation used
-        // Process.GetProcessesByName("blender") + path.Replace("/", "\\") — both Windows-isms that
-        // made this ALWAYS return false on macOS (the process is "Blender", paths use "/"). The effect:
-        // FortnitePorting never noticed Blender was already open, silently synced the plugin into a
-        // running Blender that won't load it until it's restarted, and left the user with "install the
-        // plugin" on export and nothing in Blender. Match by executable name and, when the OS lets us
-        // read it, the exact module path.
-        var exeName = System.IO.Path.GetFileNameWithoutExtension(path);
-        process = Process.GetProcesses().FirstOrDefault(candidate =>
-        {
-            try
-            {
-                if (!candidate.ProcessName.Equals(exeName, System.StringComparison.OrdinalIgnoreCase))
-                    return false;
-                try
-                {
-                    return candidate.MainModule?.FileName is not { } fileName
-                           || string.Equals(fileName, path, System.StringComparison.OrdinalIgnoreCase);
-                }
-                catch
-                {
-                    // MainModule isn't always readable for other processes on macOS; the name match
-                    // is enough to know a Blender is open and warn the user to close it.
-                    return true;
-                }
-            }
-            catch
-            {
-                return false;
-            }
-        });
+        var blenderProcesses = Process.GetProcessesByName("blender");
+        process = blenderProcesses.FirstOrDefault(process => process.MainModule is { } mainModule && mainModule.FileName.Equals(path.Replace("/", "\\")));
         return process is not null;
     }
 }

@@ -1,10 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
 using FortnitePorting.Controls.Navigation.Sidebar;
 using FortnitePorting.Controls.WrapPanel;
 using FortnitePorting.Framework;
@@ -15,7 +16,6 @@ using FortnitePorting.Models.Assets.Filters;
 using FortnitePorting.Services;
 using FortnitePorting.ViewModels;
 using Newtonsoft.Json;
-using Serilog;
 using BaseAssetItem = FortnitePorting.Models.Assets.Base.BaseAssetItem;
 
 namespace FortnitePorting.Views;
@@ -26,27 +26,6 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
     private PointerPressedEventArgs? _assetDragArgs;
     private Point _dragStartPosition;
 
-    // Thumbnails decode to WriteableBitmaps cached on each AssetItem and were never released —
-    // browsing thousands of cosmetics accumulated GBs. Bound the live count with a most-recently-
-    // realized LRU; cold thumbnails are dropped (re-decoded on demand if scrolled back to).
-    private const int MaxLoadedIcons = 300;
-    private readonly LinkedList<AssetItem> _iconLru = new();
-    // Assets whose thumbnail decode threw (managed AssetRipper decoder can't produce pixel data
-    // for an exotic format) — skip retrying so one bad icon can't crash the grid on every layout.
-    private readonly HashSet<AssetItem> _failedBitmapItems = new();
-
-    private void TrackIcon(AssetItem item)
-    {
-        _iconLru.Remove(item);
-        _iconLru.AddFirst(item);
-        while (_iconLru.Count > MaxLoadedIcons)
-        {
-            var coldest = _iconLru.Last!.Value;
-            _iconLru.RemoveLast();
-            coldest.IconDisplayImage = null;
-        }
-    }
-    
     public AssetsView()
     {
         InitializeComponent();
@@ -157,27 +136,9 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
 
     private void OnItemRealized(object? sender, ItemRealizedEventArgs e)
     {
-        if (e.Item is not AssetItem item) return;
+        if (e.Item is not AssetItem { IconDisplayImage: null } item) return;
 
-        // Keep this item hot in the LRU (evict cold thumbnails past the cap) — icons are 256px
-        // after downscale but an unbounded grid still adds up.
-        TrackIcon(item);
-
-        if (item.IconDisplayImage is not null) return;
-        if (_failedBitmapItems.Contains(item)) return;
-
-        TaskService.Run(async () =>
-        {
-            try
-            {
-                await item.LoadBitmapAsync();
-            }
-            catch (Exception ex)
-            {
-                _failedBitmapItems.Add(item);
-                Log.Warning(ex, "LoadBitmap failed for an asset; skipping its thumbnail to keep the grid responsive");
-            }
-        });
+        TaskService.Run(item.LoadBitmapAsync);
     }
 
     private void OnStyleBoxPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -186,6 +147,16 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
 
         assetStyleInfo.SelectedStyleIndex = -1;
         assetStyleInfo.SelectedItems.Clear();
+    }
+
+    private void OnStyleFlyoutItemPointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (sender is not ListBox listBox) return;
+        if (e.InitialPressMouseButton != MouseButton.Left) return;
+        if (e.Source is not Control source || source.FindAncestorOfType<ListBoxItem>() is null) return;
+
+        if (listBox.FindAncestorOfType<FlyoutPresenter>()?.Parent is Popup popup)
+            popup.IsOpen = false;
     }
 
     private void OnAssetItemPressed(object? sender, PointerPressedEventArgs e)
@@ -259,16 +230,6 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
 
         TaskService.Run(ExportClient.DiscoverAsync);
 
-        if (OperatingSystem.IsMacOS())
-        {
-            // Avalonia 11.3.x cannot originate file drags on macOS (AvaloniaUI/Avalonia#10576):
-            // DataFormats.Files/FileNames are marshalled to the legacy NSFilenamesPboardType on an
-            // NSPasteboardItem, which only accepts UTI types — drop targets never see a file URL.
-            // Begin the NSDraggingSession ourselves with an NSURL pasteboard writer instead.
-            e.Pointer.Capture(null);
-            if (MacFileDrag.BeginDrag(TopLevel.GetTopLevel(this)!, dragDropInfoFile)) return;
-        }
-
         var storageFile = await TopLevel.GetTopLevel(this)!
             .StorageProvider
             .TryGetFileFromPathAsync(new Uri(dragDropInfoFile));
@@ -277,8 +238,6 @@ public partial class AssetsView : ViewBase<AssetsViewModel>
 
         var data = new DataObject();
         data.Set(DataFormats.Files, new[] { storageFile });
-        // macOS pasteboard is picky about outgoing drags — also provide the legacy file-name form.
-        data.Set(DataFormats.FileNames, new[] { dragDropInfoFile });
 
         await DragDrop.DoDragDrop(e, data, DragDropEffects.Copy | DragDropEffects.Move);
     }

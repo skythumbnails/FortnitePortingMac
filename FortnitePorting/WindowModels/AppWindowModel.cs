@@ -49,7 +49,6 @@ public partial class AppWindowModel(
 
     [ObservableProperty] private BroadcastResponse[] _broadcasts = [];
 
-
     private const string PORTLE_URL = "https://cdn.fortniteporting.app/portle/Portle.exe";
 
     public override async Task Initialize()

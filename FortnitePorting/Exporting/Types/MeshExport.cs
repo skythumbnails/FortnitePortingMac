@@ -120,8 +120,6 @@ public class MeshExport : BaseExport
                 
                 foreach (var part in parts)
                 {
-                    if (part is null) continue;
-
                     Meshes.AddIfNotNull(Exporter.CharacterPart(part));
                     
                     montage ??= part.GetOrDefault<UAnimMontage?>("FrontendAnimMontageIdleOverride");

@@ -59,104 +59,26 @@ public class IoStoreOnDemandDownloader : IDisposable
             : null;
         if (cachePath is not null && File.Exists(cachePath))
         {
-            if (IsValidCachedChunk(cachePath, position))
-            {
-                var fs = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                fs.Position = position;
-                return fs;
-            }
-
-            // Poisoned or truncated cache entry (e.g. a cached CDN error document, or a partial
-            // write left behind by a previous run) — delete it and fall through to a fresh download.
-            try { File.Delete(cachePath); } catch { /* ignored */ }
+            var fs = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            fs.Position = position;
+            return fs;
         }
 
-        Exception? lastException = null;
-        for (var attempt = 0; attempt < 3; attempt++)
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_options.ChunkHostUri, url));
+        if (_options.UseAuth) requestMessage.Headers.Authorization = _options.Authorization;
+        using var response = await _client.SendAsync(requestMessage).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        var outData = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+        var outStream = new MemoryStream(outData, 0, outData.Length, false, true);
+
+        if (cachePath is not null)
         {
-            try
-            {
-                using var requestMessage = new HttpRequestMessage(HttpMethod.Get, new Uri(_options.ChunkHostUri, url));
-                if (_options.UseAuth) requestMessage.Headers.Authorization = _options.Authorization;
-                using var response = await _client.SendAsync(requestMessage).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-                var outData = await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                if (LooksLikeErrorDocument(outData))
-                    throw new HttpRequestException($"Chunk request for '{url}' returned an error document instead of chunk data");
-
-                var outStream = new MemoryStream(outData, 0, outData.Length, false, true);
-
-                if (cachePath is not null)
-                {
-                    // Write to a temp file and atomically move it into place so a concurrent reader
-                    // can never observe a partially written chunk, and a crashed run can never leave
-                    // a truncated file at the final path.
-                    var tempPath = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-                    try
-                    {
-                        await using (var cacheFs = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
-                        {
-                            await outStream.CopyToAsync(cacheFs).ConfigureAwait(false);
-                        }
-                        File.Move(tempPath, cachePath, overwrite: true);
-                    }
-                    catch
-                    {
-                        try { File.Delete(tempPath); } catch { /* ignored */ }
-                    }
-                }
-
-                outStream.Position = position;
-                return outStream;
-            }
-            catch (Exception e)
-            {
-                lastException = e;
-                Serilog.Log.Warning("OnDemand chunk download attempt {Attempt}/3 failed for '{Url}' (host {Host}): {Message}", attempt + 1, url, _options.ChunkHostUri, e.Message);
-                if (attempt < 2)
-                    await Task.Delay(TimeSpan.FromMilliseconds(250 * (attempt + 1))).ConfigureAwait(false);
-            }
+            await using var cacheFs = new FileStream(cachePath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.ReadWrite);
+            await outStream.CopyToAsync(cacheFs).ConfigureAwait(false);
         }
 
-        throw lastException!;
-    }
-
-    private static bool LooksLikeErrorDocument(ReadOnlySpan<byte> data)
-    {
-        // S3/CloudFront style error bodies ("<?xml ...><Error><Code>AccessDenied</Code>...") and
-        // HTML error pages are occasionally served with a success status; they must never be
-        // treated (or cached) as chunk data. Match known markup prefixes rather than a bare '<'
-        // so a legitimate small binary chunk whose first byte happens to be 0x3C ('<') is never
-        // misclassified — chunk files are content-addressed, so a false positive here would
-        // deterministically break the same asset on every run.
-        if (data.Length == 0) return true;
-        if (data.Length >= 4096) return false;
-        return data.StartsWith("<?xml"u8)
-               || data.StartsWith("<Error"u8)
-               || data.StartsWith("<!DOCTYPE"u8)
-               || data.StartsWith("<html"u8)
-               || data.StartsWith("<HTML"u8);
-    }
-
-    private static bool IsValidCachedChunk(string cachePath, long position)
-    {
-        try
-        {
-            var info = new FileInfo(cachePath);
-            if (info.Length == 0 || info.Length <= position) return false;
-            if (info.Length < 4096)
-            {
-                using var probe = new FileStream(cachePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                Span<byte> head = stackalloc byte[16];
-                var read = probe.Read(head);
-                if (LooksLikeErrorDocument(head[..read])) return false; // cached XML/HTML error document
-            }
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
+        outStream.Position = position;
+        return outStream;
     }
 
     public void Dispose()
