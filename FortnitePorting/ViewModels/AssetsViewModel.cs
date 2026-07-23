@@ -9,6 +9,7 @@ using CommunityToolkit.Mvvm.Input;
 using CUE4Parse_Conversion.Textures;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using DynamicData.Binding;
+using FluentAvalonia.UI.Controls;
 using FortnitePorting.Controls.Navigation.Sidebar;
 using FortnitePorting.Exporting;
 using FortnitePorting.Extensions;
@@ -141,6 +142,38 @@ public partial class AssetsViewModel() : ViewModelBase
     public async Task ExportTastyRig()
     {
         await Exporter.ExportTastyRig(AppSettings.ExportSettings.CreateExportMeta(ExportLocation));
+    }
+
+    [RelayCommand]
+    public async Task ExportForgeModule(string nodeGroupName)
+    {
+        var forgeBlendPath = AppSettings.ExportSettings.Blender.ForgeBlendPath;
+        if (string.IsNullOrWhiteSpace(forgeBlendPath) || !File.Exists(forgeBlendPath))
+        {
+            Info.Message("Forge Extras", "Please set your Forge V4 blend file in the Blender export settings first.",
+                severity: InfoBarSeverity.Error, closeTime: 3.0f,
+                useButton: true, buttonTitle: "Open Settings", buttonCommand: () =>
+                {
+                    Navigation.App.Open<ExportSettingsView>();
+                    Navigation.ExportSettings.Open(EExportLocation.Blender);
+                });
+            return;
+        }
+
+        if (!await ExportClient.IsRunning(EExportServerType.Blender))
+        {
+            var serverName = EExportServerType.Blender.Description;
+            Info.Message($"{serverName} Server", $"The {serverName} Plugin for Fortnite Porting is not currently installed or running.",
+                severity: InfoBarSeverity.Error, closeTime: 3.0f,
+                useButton: true, buttonTitle: "Install Plugin", buttonCommand: () =>
+                {
+                    Navigation.App.Open<PluginView>();
+                    Navigation.Plugin.Open(EExportLocation.Blender);
+                });
+            return;
+        }
+
+        await ExportClient.SendExportAsync(EExportServerType.Blender, new { ForgeModule = nodeGroupName, ForgeBlendPath = forgeBlendPath });
     }
 
     private const string ExportIconsMessageId = "ExportAllIcons";

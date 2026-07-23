@@ -58,7 +58,7 @@ public class AssetItem : Base.BaseAssetItem
         Id = Guid.NewGuid();
         CreationData = args;
 
-        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.Object.GetPathName());
+        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.ObjectPath ?? string.Empty);
 
         Rarity = CreationData.Object.GetOrDefault("Rarity", EFortRarity.Uncommon);
         
@@ -80,6 +80,24 @@ public class AssetItem : Base.BaseAssetItem
             Series = SeriesCache.GetOrAdd(seriesPackage.Name,
                 _ => seriesPackage.Load<UFortItemSeriesDefinition>());
         }
+
+        // Everything the grid needs (rarity, set, season, series, icon path) is now captured, so
+        // drop the parsed asset object. It re-parses on demand for export/preview/styles. This is
+        // the main lever that keeps a loaded tab from pinning thousands of parsed UObjects in RAM.
+        CreationData.ReleaseObject();
+    }
+
+    // Grid thumbnails render small — cap decodes at 256px (4-16x less memory than native icon res).
+    private const int IconDisplayMaxDimension = 256;
+
+    private static SKBitmap? DownscaleToFit(SKBitmap source, int maxDimension)
+    {
+        var longest = Math.Max(source.Width, source.Height);
+        if (longest <= maxDimension) return null;
+        var scale = maxDimension / (float) longest;
+        var info = new SKImageInfo(Math.Max(1, (int) (source.Width * scale)),
+            Math.Max(1, (int) (source.Height * scale)), source.ColorType, source.AlphaType);
+        return source.Resize(info, SKFilterQuality.Medium);
     }
 
     public async Task LoadBitmapAsync()
@@ -104,7 +122,12 @@ public class AssetItem : Base.BaseAssetItem
         {
             var texture = await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath);
             using var iconBitmap = texture?.Decode()?.ToSkBitmap();
-            return iconBitmap?.ToWriteableBitmap();
+            if (iconBitmap is null) return null;
+
+            // Grid icons never need full resolution; decoding at display size keeps hundreds
+            // of realized icons from holding megabytes each.
+            using var scaled = DownscaleToFit(iconBitmap, IconDisplayMaxDimension);
+            return (scaled ?? iconBitmap).ToWriteableBitmap();
         }
         catch
         {

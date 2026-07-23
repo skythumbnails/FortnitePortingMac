@@ -8,18 +8,23 @@ namespace FortnitePorting;
 
 public enum EFortniteVersion
 {
+    // All three modes work on macOS: the local-archive path is just the On-Demand pipeline reading
+    // your own .pak/.utoc files instead of streaming them. Texture decode (AssetRipper), Oodle
+    // (libnoodle.dylib), and key/mapping download are platform-agnostic. On-Demand is the default
+    // (see InstallationProfile), but point a profile at a local Paks folder to use installed data.
     [Description("Latest (Installed)")]
     [Icon(MaterialIconKind.Folder)]
     LatestInstalled,
-    
+
     [Description("Latest (On-Demand)")]
     [Icon(MaterialIconKind.Download)]
     LatestOnDemand,
-    
+
+    // Advanced: a local archive on a specific Unreal version, with manually supplied mappings/key.
     [Description("Custom")]
     [Icon(MaterialIconKind.Edit)]
     Custom
-    
+
 }
 
 public enum EExportLocation

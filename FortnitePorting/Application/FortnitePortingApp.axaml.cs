@@ -34,6 +34,19 @@ public partial class FortnitePortingApp : Avalonia.Application
             App.InitializeDesktop(desktop);
         }
 
+        // Discord sign-in on macOS: the OAuth redirect comes back as a fortniteporting:// URL open,
+        // which macOS delivers as an Apple Event to the RUNNING app — never argv, so the Windows
+        // single-instance pipe in Program.cs can't see it. Avalonia surfaces those as protocol
+        // activations; route them into the same handler. (Requires CFBundleURLTypes in Info.plist.)
+        if (OperatingSystem.IsMacOS() && TryGetFeature(typeof(IActivatableLifetime)) is IActivatableLifetime activatable)
+        {
+            activatable.Activated += (_, activatedArgs) =>
+            {
+                if (activatedArgs is ProtocolActivatedEventArgs protocol)
+                    App.HandleUrlScheme(protocol.Uri.ToString());
+            };
+        }
+
         base.OnFrameworkInitializationCompleted();
     }
     
