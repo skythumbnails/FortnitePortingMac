@@ -61,6 +61,15 @@ def ensure_forge_data(blend_path):
                 data_to.materials.append(FORGE_MATERIAL_NAME)
             else:
                 return False, f"material '{FORGE_MATERIAL_NAME}' disappeared from '{path}' while loading."
+
+            # Explicitly append every node group. Newer Forge blends no longer have the base
+            # "Forge V4" material transitively reference all the part shaders (Hair, Glasses,
+            # etc.), so relying on the material alone leaves those groups missing and hair/faceacc
+            # parts fail with "Node group 'FV4: Hair' not found". Skip names we already have so
+            # we never create '.001' duplicates.
+            for ng in data_from.node_groups:
+                if bpy.data.node_groups.get(ng) is None:
+                    data_to.node_groups.append(ng)
     except Exception as e:
         return False, f"failed to append '{FORGE_MATERIAL_NAME}' from '{path}': {e}"
 
@@ -294,6 +303,12 @@ def _resolve_group(name):
         group = bpy.data.node_groups.get(alias)
         if group is not None:
             return group
+    # Newer Forge blends sometimes ship a group as a '.001' duplicate (the base datablock was
+    # deleted, e.g. 'FV4: Hair' -> 'FV4: Hair.001'). Fall back to the numbered variants.
+    for suffix in ('.001', '.002', '.003'):
+        group = bpy.data.node_groups.get(name + suffix)
+        if group is not None:
+            return group
     return None
 
 FORGE_SHADER_GROUPS = {
@@ -312,8 +327,12 @@ def _material_has_forge_shader(material):
     if not material or not material.use_nodes or not material.node_tree:
         return False
     names = set(FORGE_SHADER_GROUPS.values())
+    # Also match the resolved datablocks so a shader applied under a '.001'/aliased name
+    # (newer Forge blends, e.g. 'FV4: Hair' -> 'FV4: Hair.001') still counts as forged.
+    resolved = {id(_resolve_group(n)) for n in names if _resolve_group(n) is not None}
     for node in material.node_tree.nodes:
-        if node.type == "GROUP" and node.node_tree and node.node_tree.name in names:
+        if node.type == "GROUP" and node.node_tree and (
+                node.node_tree.name in names or id(node.node_tree) in resolved):
             return True
     return False
 
@@ -332,8 +351,12 @@ def is_wrapper_group(group_name):
     return group_name in WRAPPER_GROUP_NAMES
 
 def find_group_node(node_tree, group_name):
+    # Match the exact name AND the resolved group datablock, so a group applied under a
+    # '.001'/aliased name (newer Forge blends) is still recognised as already-present.
+    resolved = _resolve_group(group_name)
     for node in node_tree.nodes:
-        if node.type == "GROUP" and node.node_tree and node.node_tree.name == group_name:
+        if node.type == "GROUP" and node.node_tree and (
+                node.node_tree.name == group_name or (resolved is not None and node.node_tree == resolved)):
             return node
     return None
 
