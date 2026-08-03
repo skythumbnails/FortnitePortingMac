@@ -522,6 +522,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="{ext:Space 1}" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
@@ -568,7 +569,25 @@
                         </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="1" ToolTip.Tip="Apply Tasty Rig"
+                    <Button Grid.Column="1" ToolTip.Tip="Forge Extras"
+                            Margin="{ext:Space 1, 0, 0, 0}">
+                        <material:MaterialIcon Kind="Anvil" Width="16" Height="16" />
+                        <Button.Flyout>
+                            <MenuFlyout>
+                                <MenuItem Header="Slurp Shader" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Slurp Master Shader" />
+                                <MenuItem Header="Crystal Shader" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Crystal Shader" />
+                                <MenuItem Header="Crystal Dual Color" Command="{Binding ExportForgeModuleCommand}" CommandParameter="Crystal Dual Color " />
+                                <MenuItem Header="Hologram" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Hologram" />
+                                <MenuItem Header="Z-Mask" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Z-Mask" />
+                                <MenuItem Header="Iridescent Shine" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Iridescent Shine Color" />
+                                <MenuItem Header="Metal Env Reflection" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Metal Environment Reflection Color" />
+                                <MenuItem Header="Hyper Detail" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Hyper Detail" />
+                                <MenuItem Header="Emission FX Textures" Command="{Binding ExportForgeModuleCommand}" CommandParameter="FV4: Emmision FX Textures" />
+                            </MenuFlyout>
+                        </Button.Flyout>
+                    </Button>
+
+                    <Button Grid.Column="2" ToolTip.Tip="Apply Tasty Rig"
                             Command="{Binding ExportTastyRigCommand}"
                             Margin="{ext:Space 1, 0, 0, 0}"
                             IsVisible="{Binding IsTastyRigApplyVisible}"
@@ -576,7 +595,7 @@
                         <Image Width="16" Height="16" Source="/Assets/Icons/Tasty.png" />
                     </Button>
 
-                    <Button Grid.Column="3" ToolTip.Tip="Export Settings" Content="{material:MaterialIconExt Settings}"
+                    <Button Grid.Column="4" ToolTip.Tip="Export Settings" Content="{material:MaterialIconExt Settings}"
                             Command="{Binding OpenSettingsCommand}" />
 
                 </Grid>

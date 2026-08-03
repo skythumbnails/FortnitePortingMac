@@ -159,6 +159,16 @@ public partial class FileBrowser : UserControl
 
         TaskService.Run(ExportClient.DiscoverAsync);
 
+        if (OperatingSystem.IsMacOS())
+        {
+            // Avalonia 11.3.x cannot originate file drags on macOS (AvaloniaUI/Avalonia#10576):
+            // DataFormats.Files/FileNames are marshalled to the legacy NSFilenamesPboardType on an
+            // NSPasteboardItem, which only accepts UTI types — drop targets never see a file URL.
+            // Begin the NSDraggingSession ourselves with an NSURL pasteboard writer instead.
+            e.Pointer.Capture(null);
+            if (MacFileDrag.BeginDrag(TopLevel.GetTopLevel(this)!, dragDropInfoFile)) return;
+        }
+
         var storageFile = await TopLevel.GetTopLevel(this)!
             .StorageProvider
             .TryGetFileFromPathAsync(new Uri(dragDropInfoFile));

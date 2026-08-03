@@ -32,7 +32,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <Grid Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
+                        <Grid x:Name="SidebarHeader" Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 2}" />
@@ -437,6 +437,6 @@
                                  Grid.Row="0" 
                                  Grid.RowSpan="2" />
 
-        <controls:WindowTitleBar Grid.Row="0"/>
+        <controls:WindowTitleBar x:Name="WindowsChromeButtons" Grid.Row="0"/>
     </Grid>
 </Window>
