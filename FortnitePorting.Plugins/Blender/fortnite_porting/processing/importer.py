@@ -1,9 +1,10 @@
 import json
-import traceback
-from . import forge
+import bpy
 from .context import ImportContext
+from .legacy.context import LegacyImportContext
 from ..server import Server
 from ..utils import addon_version
+from ..export_profile import resolve_export_profile
 
 
 class Importer:
@@ -13,17 +14,6 @@ class Importer:
     def Import(data: str):
         json_data = json.loads(data)
 
-        # Forge extras message: a standalone payload sent by the app's Forge
-        # extras menu - routed to the forge module handler instead of the
-        # normal import path.
-        if "ForgeModule" in json_data:
-            try:
-                ok, message = forge.add_extra(json_data["ForgeModule"], json_data.get("ForgeBlendPath", ""))
-                print(f"[FortnitePorting] Forge: {message}")
-            except Exception:
-                traceback.print_exc()
-            return
-
         meta = json_data.get("MetaData")
         exports = json_data.get("Exports")
 
@@ -31,8 +21,11 @@ class Importer:
             Importer._version_checked = True
             Importer._check_version(meta)
 
+        profile = resolve_export_profile(bpy.app.version)
+        context_type = LegacyImportContext if profile.uses_legacy_materials else ImportContext
+
         for export in exports:
-            context = ImportContext(meta)
+            context = context_type(meta)
             context.run(export)
 
     @staticmethod

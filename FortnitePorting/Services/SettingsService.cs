@@ -39,10 +39,8 @@ public partial class SettingsService : ObservableObject, IService
 
             foreach (var property in settings.GetType().GetProperties())
             {
-                // Skip read-only properties — a `return` here (as it was) aborts the whole load on
-                // the first one, leaving every later setting (incl. export/Forge) at its default.
-                if (!property.CanWrite) continue;
-
+                if (!property.CanWrite) return;
+                
                 var value = property.GetValue(settings);
                 property.SetValue(this, value);
             }

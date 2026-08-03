@@ -3,11 +3,11 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
-             xmlns:material="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
              xmlns:enums="clr-namespace:CUE4Parse_Conversion.UEFormat.Enums;assembly=CUE4Parse-Conversion"
              xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
              xmlns:fortnitePorting="clr-namespace:FortnitePorting"
+             xmlns:fpExport="clr-namespace:FortnitePorting;assembly=FortnitePorting.Exporting"
              xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
              xmlns:sidebar="clr-namespace:FortnitePorting.Controls.Navigation.Sidebar"
              xmlns:controls1="clr-namespace:FortnitePorting.Controls"
@@ -246,27 +246,6 @@
                                               SelectedItem="{Binding MaterialImportMethod, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
-                            <controls:SettingsItem Title="Forge Materials"
-                                                   Description="Port skins with the Forge V4 shader instead of the FortnitePorting shader. Only supports Forge V4.">
-                                <controls:SettingsItem.Footer>
-                                    <ToggleSwitch IsChecked="{Binding UseForgeMaterials}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Forge Blend File"
-                                                   Description="Path to your Forge V4 Official.blend file.">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBox Text="{Binding ForgeBlendPath, Mode=TwoWay}"
-                                                 Watermark="Ex. /Users/FortnitePorting/Downloads/Forge V4 Official.blend"
-                                                 IsEnabled="{Binding UseForgeMaterials}"
-                                                 MaxWidth="500" />
-                                        <Button Margin="4 0 0 0" Command="{Binding BrowseForgeBlendPathCommand}"
-                                                IsEnabled="{Binding UseForgeMaterials}">
-                                            <material:MaterialIcon Kind="Folder"/>
-                                        </Button>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
                         </StackPanel>
                     </sidebar:SidebarItemButton.Tag>
                 </sidebar:SidebarItemButton>
@@ -277,7 +256,7 @@
                             <controls:SettingsItem Title="Image Format"
                                                    Description="The file type that textures should be exported as.">
                                 <controls:SettingsItem.Footer>
-                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fortnitePorting:EImageFormat}}"
+                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:EImageFormat}}"
                                               SelectedItem="{Binding ImageFormat, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
@@ -305,7 +284,7 @@
                                                    Description="The file type that sounds should be exported as."
                                                    IsEnabled="{Binding ImportSounds}">
                                 <controls:SettingsItem.Footer>
-                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fortnitePorting:ESoundFormat}}"
+                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ESoundFormat}}"
                                               SelectedItem="{Binding SoundFormat, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>

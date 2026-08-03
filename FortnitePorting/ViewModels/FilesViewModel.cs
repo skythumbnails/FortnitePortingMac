@@ -16,6 +16,8 @@ using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.Utils;
 using DynamicData;
 using FluentAvalonia.UI.Controls;
+using FortnitePorting.CUE4Parse.Models.Unreal;
+using FortnitePorting.CUE4Parse.Models.Unreal.VirtualTexture;
 using FortnitePorting.Exporting;
 using FortnitePorting.Exporting.Context;
 using FortnitePorting.Exporting.Models;
@@ -28,7 +30,6 @@ using FortnitePorting.Models;
 using FortnitePorting.Models.Files;
 using FortnitePorting.Models.Information;
 using FortnitePorting.Models.Unreal;
-using FortnitePorting.Services;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.Views;
 using FortnitePorting.Windows;
@@ -37,9 +38,27 @@ using Serilog;
 
 namespace FortnitePorting.ViewModels;
 
-public partial class FilesViewModel(FilesService filesService) : ViewModelBase, IResettable
+public partial class FilesViewModel(
+    FilesService files,
+    ExportService exporter,
+    CUE4ParseService ueParse,
+    InfoService info,
+    NavigationService navigation,
+    SettingsService settings,
+    DiscordService discord,
+    SupabaseService supabase,
+    AppService app) : ViewModelBase, IResettable
 {
-    [ObservableProperty] private FilesService _files = filesService;
+    [ObservableProperty] private FilesService _files = files;
+
+    private readonly ExportService _exporter = exporter;
+    private readonly CUE4ParseService _ueParse = ueParse;
+    private readonly InfoService _info = info;
+    private readonly NavigationService _navigation = navigation;
+    private readonly SettingsService _settings = settings;
+    private readonly DiscordService _discord = discord;
+    private readonly SupabaseService _supaBase = supabase;
+    private readonly AppService _app = app;
 
     [ObservableProperty] private FileBrowserContext _context = new()
     {
@@ -49,10 +68,17 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
     [ObservableProperty] private EExportLocation _assetExportLocation = EExportLocation.Blender;
     [ObservableProperty] private EExportLocation _dataExportLocation = EExportLocation.AssetsFolder;
 
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsAssetExportTarget))]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsAssetExportTarget)), NotifyPropertyChangedFor(nameof(ShowAssetExportButton)), NotifyPropertyChangedFor(nameof(ShowDataExportButton))]
     private EExportTarget _exportTarget = EExportTarget.Asset;
 
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowAssetExportButton)), NotifyPropertyChangedFor(nameof(ShowDataExportButton))]
+    private bool _isExporting;
+
     public bool IsAssetExportTarget => ExportTarget == EExportTarget.Asset;
+    public bool ShowAssetExportButton => IsAssetExportTarget && !IsExporting;
+    public bool ShowDataExportButton => !IsAssetExportTarget && !IsExporting;
+
+    private ExportDataMeta? _exportMeta;
 
     public EnumRecord[] FolderExportLocations =>
         Enum.GetValues<EExportLocation>()
@@ -69,13 +95,18 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
 
     public override async Task Initialize()
     {
-        if (UEParse.Provider is null) return;
+        var defaultLocation = _settings.Application.DefaultExportLocation;
+        AssetExportLocation = defaultLocation;
+        if (defaultLocation.IsFolder)
+            DataExportLocation = defaultLocation;
+
+        if (_ueParse.Provider is null) return;
         Context.Initialize();
     }
 
     public override async Task OnViewOpened()
     {
-        Discord.Update($"Browsing {UEParse.Provider.Files.Count:N0} Files");
+        _discord.Update($"Browsing {_ueParse.Provider.Files.Count:N0} Files");
     }
 
     public void JumpTo(string path)
@@ -86,8 +117,8 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
     [RelayCommand]
     public async Task OpenSettings()
     {
-        Navigation.App.Open<ExportSettingsView>();
-        Navigation.ExportSettings.Open(AssetExportLocation);
+        _navigation.App.Open<ExportSettingsView>();
+        _navigation.ExportSettings.Open(AssetExportLocation);
     }
 
     [RelayCommand]
@@ -106,7 +137,7 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
 
         try
         {
-            if (UEParse.Provider.TryLoadObjectExports(selectedItemPath, out var exports))
+            if (_ueParse.Provider.TryLoadObjectExports(selectedItemPath, out var exports))
             {
                 var json = JsonConvert.SerializeObject(exports, Formatting.Indented);
                 await TaskService.RunDispatcherAsync(() =>
@@ -116,7 +147,7 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
         }
         catch (Exception)
         {
-            Info.Message("Properties", $"Failed to preview {selectedItemPath}");
+            _info.Message("Properties", $"Failed to preview {selectedItemPath}");
         }
     }
 
@@ -130,18 +161,18 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
         var loadedAssets = new List<UObject>();
         foreach (var path in selectedPaths)
         {
-            var basePath = Exporter.FixPath(path);
+            var basePath = _exporter.FixPath(path);
 
             UObject? asset;
             if (path.EndsWith(".umap"))
             {
-                var package = await UEParse.Provider.LoadPackageAsync(basePath);
+                var package = await _ueParse.Provider.LoadPackageAsync(basePath);
                 asset = package.GetExports().OfType<UWorld>().FirstOrDefault();
             }
             else
             {
-                asset = await UEParse.Provider.SafeLoadPackageObjectAsync(basePath);
-                asset ??= await UEParse.Provider.SafeLoadPackageObjectAsync(
+                asset = await _ueParse.Provider.SafeLoadPackageObjectAsync(basePath);
+                asset ??= await _ueParse.Provider.SafeLoadPackageObjectAsync(
                     $"{basePath}.{basePath.SubstringAfterLast("/")}_C");
             }
 
@@ -188,9 +219,9 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
                 break;
             case UMaterial:
             case UMaterialFunction:
-                if (!UEParse.Provider.MountedVfs.Any(vfs => vfs.Name.Contains(".o.")))
+                if (!_ueParse.Provider.MountedVfs.Any(vfs => vfs.Name.Contains(".o.")))
                 {
-                    Info.Message("Material Preview",
+                    _info.Message("Material Preview",
                         "Material node-tree data cannot be loaded because UEFN is not installed.",
                         closeTime: 5, severity: InfoBarSeverity.Error);
                     break;
@@ -198,7 +229,7 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
                 MaterialPreviewWindow.Preview(asset);
                 break;
             case UMaterialInstanceConstant instance:
-                Info.Dialog($"Preview {instance.Name}", "What asset type would you like to preview?", buttons:
+                _info.Dialog($"Preview {instance.Name}", "What asset type would you like to preview?", buttons:
                 [
                     new DialogButton
                     {
@@ -224,6 +255,9 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
             case ULevel:
                 ModelPreviewWindow.Preview([asset]);
                 break;
+            case UAnimationAsset animation:
+                PreviewAnimation(animation);
+                break;
             case USoundWave soundWave:
                 SoundPreviewWindow.Preview(soundWave);
                 break;
@@ -236,18 +270,82 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
         }
     }
 
+    private void PreviewAnimation(UAnimationAsset animation)
+    {
+        if (ModelPreviewWindow.TryApplyAnimation(animation))
+            return;
+
+        _info.Dialog($"Preview {animation.Name}", "Choose a skeletal mesh to preview this animation.", buttons:
+        [
+            new DialogButton
+            {
+                Text = "Use Default Mannequin",
+                Action = () => TaskService.Run(async () =>
+                    await PreviewAnimationWithMeshAsync(animation, DefaultMannequinMeshPath))
+            },
+            new DialogButton
+            {
+                Text = "Select Mesh",
+                Action = () => TaskService.RunDispatcher(async () =>
+                {
+                    if (await FilePickerWindow.OpenBrowserAsync("Select Skeletal Mesh") is not { Length: > 0 } paths)
+                        return;
+
+                    await PreviewAnimationWithMeshAsync(animation, _exporter.FixPath(paths[0]));
+                })
+            }
+        ]);
+    }
+
+    private async Task PreviewAnimationWithMeshAsync(UAnimationAsset animation, string meshPath)
+    {
+        var mesh = await _ueParse.Provider.SafeLoadPackageObjectAsync<USkeletalMesh>(meshPath);
+        mesh ??= await _ueParse.Provider.SafeLoadPackageObjectAsync(meshPath) as USkeletalMesh;
+        if (mesh is null)
+        {
+            await TaskService.RunDispatcherAsync(() =>
+                _info.Message("Model Viewer", "Could not load the selected skeletal mesh.",
+                    severity: InfoBarSeverity.Warning));
+            return;
+        }
+
+        await TaskService.RunDispatcherAsync(() => ModelPreviewWindow.Preview([mesh], animation));
+    }
+
+    private const string DefaultMannequinMeshPath =
+        "FortniteGame/Content/Creative/Devices/Mannequin/Meshes/CP_Device_Mannequin";
+
     [RelayCommand]
     public async Task Export()
     {
-        switch (ExportTarget)
+        var location = ExportTarget is EExportTarget.Asset ? AssetExportLocation : DataExportLocation;
+        _exportMeta = _settings.ExportSettings.CreateExportMeta(location);
+        IsExporting = true;
+
+        try
         {
-            case EExportTarget.Asset: await ExportAssets(); break;
-            case EExportTarget.Properties: await ExportProperties(); break;
-            case EExportTarget.RawData: await ExportRawData(); break;
+            switch (ExportTarget)
+            {
+                case EExportTarget.Asset: await ExportAssets(_exportMeta); break;
+                case EExportTarget.Properties: await ExportProperties(_exportMeta); break;
+                case EExportTarget.RawData: await ExportRawData(_exportMeta); break;
+            }
+        }
+        finally
+        {
+            _exportMeta?.Dispose();
+            _exportMeta = null;
+            IsExporting = false;
         }
     }
 
-    private async Task ExportAssets()
+    [RelayCommand]
+    public void CancelExport()
+    {
+        _exportMeta?.Cancel();
+    }
+
+    private async Task ExportAssets(ExportDataMeta meta)
     {
         var unsupportedExportTypes = new HashSet<string>();
 
@@ -267,21 +365,21 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
         var exports = new List<ExportFileEntry>();
         foreach (var path in paths)
         {
-            var basePath = Exporter.FixPath(path);
+            var basePath = _exporter.FixPath(path);
             UObject? asset = null;
             if (path.EndsWith(".umap"))
             {
-                asset = await UEParse.Provider.SafeLoadPackageObjectAsync(basePath);
+                asset = await _ueParse.Provider.SafeLoadPackageObjectAsync(basePath);
                 if (asset is not UWorld)
                 {
-                    var package = await UEParse.Provider.LoadPackageAsync(basePath);
+                    var package = await _ueParse.Provider.LoadPackageAsync(basePath);
                     asset = package.GetExports().OfType<UWorld>().FirstOrDefault();
                 }
             }
             else
             {
-                asset = await UEParse.Provider.SafeLoadPackageObjectAsync(basePath);
-                asset ??= await UEParse.Provider.SafeLoadPackageObjectAsync(
+                asset = await _ueParse.Provider.SafeLoadPackageObjectAsync(basePath);
+                asset ??= await _ueParse.Provider.SafeLoadPackageObjectAsync(
                     $"{basePath}.{basePath.SubstringAfterLast("/")}_C");
             }
 
@@ -303,9 +401,9 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
                 case UAnimSequence sequence:
                     if (sequence.AdditiveAnimType is not EAdditiveAnimationType.AAT_None && sequence.RefPoseSeq is null)
                     {
-                        if (await FilePickerWindow.OpenBrowserAsync(windowName: "Select Additive Base Sequence", startPath: UEParse.Provider.FixPath(sequence.GetPathName())) is { Length: > 0 } selectedPaths
+                        if (await FilePickerWindow.OpenBrowserAsync(windowName: "Select Additive Base Sequence", startPath: _ueParse.Provider.FixPath(sequence.GetPathName())) is { Length: > 0 } selectedPaths
                             && selectedPaths.FirstOrDefault() is { } selectedPath
-                            && UEParse.Provider.TryLoadPackageObject<UAnimSequence>(Exporter.FixPath(selectedPath), out var baseSequence))
+                            && _ueParse.Provider.TryLoadPackageObject<UAnimSequence>(_exporter.FixPath(selectedPath), out var baseSequence))
                         {
                             fileEntry.Meta = new ExportAdditiveAnimFileMeta
                             {
@@ -314,13 +412,13 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
                         }
                         else
                         {
-                            Info.Message("Additive Animation", "A valid base pose was not selected, animation export result may be inaccurate.");
+                            _info.Message("Additive Animation", "A valid base pose was not selected, animation export result may be inaccurate.");
                         }
                     }
                     break;
             }
 
-            var exportType = Exporter.DetermineExportType(asset);
+            var exportType = _exporter.DetermineExportType(asset);
             if (exportType is EExportType.None)
             {
                 unsupportedExportTypes.Add(asset.ExportType);
@@ -334,7 +432,7 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
 
         if (exports.Count == 0)
         {
-            Info.Message("Exporter",
+            _info.Message("Exporter",
                 unsupportedExportTypes.Count == 0
                     ? "Failed to load any assets for export."
                     : $"Assets with these types do not have exporters: {unsupportedExportTypes.CommaJoin()}.",
@@ -342,17 +440,16 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
             return;
         }
 
-        var meta = AppSettings.ExportSettings.CreateExportMeta(AssetExportLocation);
         meta.WorldFlags = EWorldFlags.Actors | EWorldFlags.Landscape | EWorldFlags.WorldPartitionGrids | EWorldFlags.HLODs;
         if (meta.Settings.ImportInstancedFoliage)
             meta.WorldFlags |= EWorldFlags.InstancedFoliage;
 
-        var exportedProperly = await Exporter.Export(exports, meta);
-        if (exportedProperly && SupaBase.IsLoggedIn)
-            await SupaBase.PostExports(exports.Select(e => e.Object.GetPathName()));
+        var exportedProperly = await _exporter.Export(exports, meta);
+        if (exportedProperly && _supaBase.IsLoggedIn)
+            await _supaBase.PostExports(exports.Select(e => e.Object.GetPathName()));
     }
 
-    private async Task ExportProperties()
+    private async Task ExportProperties(ExportDataMeta meta)
     {
         var paths = Context.UseFlatView
             ? Context.SelectedFlatViewItems.Select(x => x.Path).ToList()
@@ -369,19 +466,18 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
 
         if (paths.Count == 0)
         {
-            Info.Message("Exporter", "Failed to load any assets for export.", InfoBarSeverity.Warning);
+            _info.Message("Exporter", "Failed to load any assets for export.", InfoBarSeverity.Warning);
             return;
         }
 
-        var meta = AppSettings.ExportSettings.CreateExportMeta(DataExportLocation);
         if (meta.ExportLocation is EExportLocation.CustomFolder &&
-            await App.BrowseFolderDialog() is { } customExportPath)
+            await _app.BrowseFolderDialog() is { } customExportPath)
             meta.CustomPath = customExportPath;
 
         var context = new ExportContext(meta);
         foreach (var path in paths)
         {
-            if (!UEParse.Provider.TryLoadObjectExports(path, out var exports)) continue;
+            if (!_ueParse.Provider.TryLoadObjectExports(path, out var exports)) continue;
 
             var exportPath = context.BuildExportPath(
                 meta.CustomPath is not null
@@ -394,7 +490,7 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
         }
     }
 
-    private async Task ExportRawData()
+    private async Task ExportRawData(ExportDataMeta meta)
     {
         var paths = Context.UseFlatView
             ? Context.SelectedFlatViewItems.Select(x => x.Path).ToList()
@@ -411,19 +507,18 @@ public partial class FilesViewModel(FilesService filesService) : ViewModelBase, 
 
         if (paths.Count == 0)
         {
-            Info.Message("Exporter", "Failed to load any assets for export.", InfoBarSeverity.Warning);
+            _info.Message("Exporter", "Failed to load any assets for export.", InfoBarSeverity.Warning);
             return;
         }
 
-        var meta = AppSettings.ExportSettings.CreateExportMeta(DataExportLocation);
         if (meta.ExportLocation is EExportLocation.CustomFolder &&
-            await App.BrowseFolderDialog() is { } customExportPath)
+            await _app.BrowseFolderDialog() is { } customExportPath)
             meta.CustomPath = customExportPath;
 
         var exportContext = new ExportContext(meta);
         foreach (var path in paths)
         {
-            if (!UEParse.Provider.TrySavePackage(path, out var assets)) continue;
+            if (!_ueParse.Provider.TrySavePackage(path, out var assets)) continue;
 
             foreach (var (assetPath, assetData) in assets)
             {

@@ -1,8 +1,5 @@
-using System;
 using System.ComponentModel;
-using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using CUE4Parse_Conversion;
 using CUE4Parse_Conversion.Animations;
 using CUE4Parse_Conversion.Meshes;
@@ -39,9 +36,7 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private float _subsurface = 0.0f;
     [ObservableProperty] private float _toonShadingBrightness = 0.5f;
     [ObservableProperty] private EMaterialImportMethod _materialImportMethod = EMaterialImportMethod.Data;
-    [ObservableProperty] private bool _useForgeMaterials = false;
-    [ObservableProperty] private string _forgeBlendPath = string.Empty;
-
+    
     // Texture
     [ObservableProperty] private ETextureImportMethod _textureImportMethod = ETextureImportMethod.Data;
     
@@ -50,52 +45,6 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private bool _updateTimelineLength = false;
     [ObservableProperty] private bool _importSounds = false;
     
-    [RelayCommand]
-    public async Task BrowseForgeBlendPath()
-    {
-        if (OperatingSystem.IsMacOS())
-        {
-            // Avalonia's StorageProvider file picker hard-crashes the app on macOS when opened
-            // from settings (native NSOpenPanel re-entrancy). Shell out to AppleScript's
-            // `choose file` dialog, exactly like the Blender.app picker in BlenderPluginViewModel.
-            string? picked = null;
-            try
-            {
-                using var process = new System.Diagnostics.Process();
-                process.StartInfo = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "/usr/bin/osascript",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                process.StartInfo.ArgumentList.Add("-e");
-                process.StartInfo.ArgumentList.Add(
-                    "POSIX path of (choose file of type {\"blend\"} " +
-                    "default location (POSIX file \"" +
-                    (string.IsNullOrEmpty(ForgeBlendPath) ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) + "/Downloads" : System.IO.Path.GetDirectoryName(ForgeBlendPath)) +
-                    "\") with prompt \"Select Forge V4 Official.blend\")");
-                process.Start();
-                var output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                if (process.ExitCode == 0) picked = output.Trim();
-            }
-            catch
-            {
-                // osascript missing/blocked (or user cancelled) — leave the path unchanged.
-            }
-
-            if (!string.IsNullOrEmpty(picked)) ForgeBlendPath = picked.TrimEnd('/');
-            return;
-        }
-
-        if (await App.BrowseFileDialog(fileTypes: Globals.BlendFileType, suggestedFileName: ForgeBlendPath) is { } path)
-        {
-            ForgeBlendPath = path;
-        }
-    }
-
     public override ExporterOptions CreateExportOptions()
     {
         return new ExporterOptions

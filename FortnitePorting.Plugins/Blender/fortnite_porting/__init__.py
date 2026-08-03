@@ -11,6 +11,7 @@ from .ueformat import register as ueformat_register, unregister as ueformat_unre
 from .processing.context.material_context import material_hash_cache, material_name_cache
 from .processing.context.texture_context import image_cache
 from .utils import loaded_versions
+from .export_profile import resolve_export_profile
 
 from bpy.app.handlers import persistent
 
@@ -19,8 +20,8 @@ bl_info = {
     "name": "Fortnite Porting",
     "description": "Import Server for Fortnite Porting",
     "author": "Half",
-    "blender": (5, 0, 0),
-    "version": (4, 2, 2),
+    "blender": (4, 2, 0),
+    "version": (4, 0, 0),
     "category": "Import-Export",
 }
 
@@ -56,6 +57,7 @@ def scene_load_handler(filepath):
 
 def register():
     global server
+    profile = resolve_export_profile(bpy.app.version)
     server = Server.create()
     server.start()
 

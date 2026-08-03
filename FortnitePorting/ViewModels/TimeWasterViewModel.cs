@@ -15,13 +15,13 @@ using FortnitePorting.Models.TimeWaster.Actors;
 using FortnitePorting.Models.TimeWaster.Audio;
 using FortnitePorting.Services;
 using FortnitePorting.Shared.Extensions;
-// using NAudio.Vorbis;
-// using NAudio.Wave;
+using NAudio.Vorbis;
+using NAudio.Wave;
 using TWPlayer = FortnitePorting.Models.TimeWaster.Actors.TWPlayer;
 
 namespace FortnitePorting.ViewModels;
 
-public partial class TimeWasterViewModel : ViewModelBase
+public partial class TimeWasterViewModel(AudioPlaybackService audio) : ViewModelBase
 {
     [ObservableProperty] private bool _isGame = true;
     
@@ -52,9 +52,11 @@ public partial class TimeWasterViewModel : ViewModelBase
     private int NextBossScore = BOSS_SCORE_DISTANCE;
     
     private static bool LoadedResources = false;
-
-    private readonly object AmbientOutput = null;
-    private readonly object GameOutput = null;
+    
+    private WaveOutEvent? AmbientOutput;
+    private WaveOutEvent? GameOutput;
+    private LoopStream? AmbientStream;
+    private LoopStream? GameStream;
     private static LoopStream AmbientBackground;
     private static LoopStream GameBackground;
     private static CachedSound Spawn;
@@ -75,20 +77,35 @@ public partial class TimeWasterViewModel : ViewModelBase
     private const float DELTA_TIME = 1.0f / 60f;
 
     public void LoadResources()
-    {
+    { 
         if (LoadedResources) return;
-        LoadedResources = true;
-        // Audio disabled on macOS (NAudio is Windows-only)
-        AmbientBackground = new LoopStream(null);
-        GameBackground = new LoopStream(null);
-    }
+        
+        AmbientBackground = new LoopStream(new VorbisWaveReader(AssetLoader.Open(new Uri("avares://FortnitePorting/Assets/TimeWaster/Music/Ambient_Music.ogg"))));
+        GameBackground = new LoopStream(new VorbisWaveReader(AssetLoader.Open(new Uri("avares://FortnitePorting/Assets/TimeWaster/Music/Game_Music.ogg"))));
+        Spawn = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_Spawn_01.ogg");
+        Shoot = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_Shoot_01.ogg");
+        Explode = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_Explo_01.ogg");
+        Death = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_Death_01.ogg");
+        BossAppear = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_BossAppear_01.ogg");
+        BossHit = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_BossHit_01.ogg");
+        Win = new CachedSound("avares://FortnitePorting/Assets/TimeWaster/SFX/PMB_Win_01.ogg");
 
+        for (var index = 1; index <= 8; index++)
+        {
+            PianoSnippets.Add(new CachedSound($"avares://FortnitePorting/Assets/TimeWaster/Music/PianoSnippets/NightNight_Music_PianoSnip_{index:D2}.ogg"));
+        }
+
+        LoadedResources = true;
+    }
+    
     public override async Task Initialize()
     {
         if (Design.IsDesignMode) return;
         
+        audio.OutputDeviceChanged += OnOutputDeviceChanged;
+        audio.VolumeChanged += OnVolumeChanged;
         RegisterUpdater(UpdateBackground);
-        InitAudio(AmbientOutput, AmbientBackground);
+        InitAudio(ref AmbientOutput, AmbientBackground, out AmbientStream);
 
         TaskService.Run(async () =>
         {
@@ -130,7 +147,7 @@ public partial class TimeWasterViewModel : ViewModelBase
         
         Spawn.Play();
 
-        // InitAudio(GameOutput, GameBackground);
+        InitAudio(ref GameOutput, GameBackground, out GameStream);
     }
 
     public override async Task OnViewExited()
@@ -145,9 +162,16 @@ public partial class TimeWasterViewModel : ViewModelBase
 
     public void CleanupResources()
     {
+        audio.OutputDeviceChanged -= OnOutputDeviceChanged;
+        audio.VolumeChanged -= OnVolumeChanged;
         AudioSystem.Instance.Stop();
         Updaters.ForEach(updater => updater.Stop());
-        // Audio disabled on macOS
+        AmbientOutput?.Stop();
+        AmbientOutput?.Dispose();
+        AmbientOutput = null;
+        GameOutput?.Stop();
+        GameOutput?.Dispose();
+        GameOutput = null;
     }
 
 
@@ -450,7 +474,43 @@ public partial class TimeWasterViewModel : ViewModelBase
         return new Rotate3DTransform(x, y, z, centerX, centerY, centerZ, depth);
     }
     
-    private void InitAudio(object waveOut, LoopStream wave) { }
+    private void InitAudio(ref WaveOutEvent? waveOut, LoopStream source, out LoopStream? activeStream)
+    {
+        waveOut?.Stop();
+        waveOut?.Dispose();
+
+        activeStream = source;
+        var output = audio.CreateOutputDevice();
+        waveOut = output;
+
+        TaskService.Run(async () =>
+        {
+            source.Position = 0;
+            output.Init(source);
+            output.Play();
+
+            while (output.PlaybackState == PlaybackState.Playing)
+            {
+                await Task.Delay(25);
+            }
+        });
+    }
+
+    private void OnOutputDeviceChanged()
+    {
+        if (AmbientOutput is not null && AmbientStream is not null)
+            InitAudio(ref AmbientOutput, AmbientStream, out AmbientStream);
+
+        if (GameOutput is not null && GameStream is not null)
+            InitAudio(ref GameOutput, GameStream, out GameStream);
+    }
+
+    private void OnVolumeChanged()
+    {
+        var volume = audio.Volume;
+        if (AmbientOutput is not null) AmbientOutput.Volume = volume;
+        if (GameOutput is not null) GameOutput.Volume = volume;
+    }
 
     private static List<DispatcherTimer> Updaters = [];
     

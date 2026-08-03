@@ -11,6 +11,9 @@ from ...logger import Log
 from ...ueformat.importer.logic import UEFormatImport
 from ...ueformat.options import UEModelOptions
 
+VERTEX_CRUNCH_NAME = "FPv4 Vertex Crunch"
+FULL_VERTEX_CRUNCH_NAME = "FPv4 Full Vertex Crunch"
+
 class MeshImportContext:
     def import_mesh_data(self, data):
         rig_type = ERigType(self.options.get("RigType"))
@@ -55,17 +58,17 @@ class MeshImportContext:
             self.update_preskinned_bounds(master_mesh)
             
             for material, elements in self.partial_vertex_crunch_materials.items():
-                vertex_crunch_modifier = master_mesh.modifiers.new("FPv4 Vertex Crunch", type="NODES")
-                vertex_crunch_modifier.node_group = bpy.data.node_groups.get("FPv4 Vertex Crunch")
+                vertex_crunch_modifier = master_mesh.modifiers.new(VERTEX_CRUNCH_NAME, type="NODES")
+                vertex_crunch_modifier.node_group = bpy.data.node_groups.get(VERTEX_CRUNCH_NAME)
 
-                set_geo_nodes_param(vertex_crunch_modifier, "Material", material)
+                set_geo_nodes_param(vertex_crunch_modifier, "Material", material, self.version_profile)
                 for name, value in elements.items():
-                    set_geo_nodes_param(vertex_crunch_modifier, name, value == 1)
+                    set_geo_nodes_param(vertex_crunch_modifier, name, value == 1, self.version_profile)
                     
             for material in self.full_vertex_crunch_materials:
-                vertex_crunch_modifier = master_mesh.modifiers.new("FPv4 Full Vertex Crunch", type="NODES")
-                vertex_crunch_modifier.node_group = bpy.data.node_groups.get("FPv4 Full Vertex Crunch")
-                set_geo_nodes_param(vertex_crunch_modifier, "Material", material)
+                vertex_crunch_modifier = master_mesh.modifiers.new(FULL_VERTEX_CRUNCH_NAME, type="NODES")
+                vertex_crunch_modifier.node_group = bpy.data.node_groups.get(FULL_VERTEX_CRUNCH_NAME)
+                set_geo_nodes_param(vertex_crunch_modifier, "Material", material, self.version_profile)
 
             if self.add_toon_outline:
                 master_mesh.data.materials.append(bpy.data.materials.get("M_FP_Outline"))
@@ -79,24 +82,7 @@ class MeshImportContext:
                 solidify.material_offset = len(master_mesh.data.materials) - 1
                 
             if rig_type == ERigType.TASTY:
-                # The Tasty rig builder assumes the standard humanoid skeleton; outfits with exotic
-                # skeletons (creatures, mascots, oversized props) can fail partway through. That
-                # used to abort the whole import — instead, keep the imported model on its default
-                # armature and tell the user what happened.
-                try:
-                    self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
-                except Exception as e:
-                    import traceback
-                    Log.error(f"Tasty rig failed for {self.name}:\n{traceback.format_exc()}")
-                    try:
-                        bpy.ops.object.mode_set(mode='OBJECT')
-                    except Exception:
-                        pass
-                    from ...server import Server
-                    Server.instance.send_message(
-                        f"The Tasty rig could not be applied to {self.name} — it was imported with the "
-                        f"default rig instead. This usually means a non-standard skeleton. "
-                        f"({type(e).__name__}: {e})")
+                self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
 
             if anim_data := data.get("Animation"):
                 self.import_anim_data(anim_data, master_skeleton)
@@ -104,16 +90,16 @@ class MeshImportContext:
         if self.type in [EExportType.SIDEKICK]:
             master_mesh = self.imported_meshes[0]["Mesh"]
             for material in self.full_vertex_crunch_materials:
-                vertex_crunch_modifier = master_mesh.modifiers.new("FPv4 Full Vertex Crunch", type="NODES")
-                vertex_crunch_modifier.node_group = bpy.data.node_groups.get("FPv4 Full Vertex Crunch")
-                set_geo_nodes_param(vertex_crunch_modifier, "Material", material)
+                vertex_crunch_modifier = master_mesh.modifiers.new(FULL_VERTEX_CRUNCH_NAME, type="NODES")
+                vertex_crunch_modifier.node_group = bpy.data.node_groups.get(FULL_VERTEX_CRUNCH_NAME)
+                set_geo_nodes_param(vertex_crunch_modifier, "Material", material, self.version_profile)
 
             for material, elements in self.partial_vertex_crunch_materials.items():
-                vertex_crunch_modifier = master_mesh.modifiers.new("FPv4 Vertex Crunch", type="NODES")
-                vertex_crunch_modifier.node_group = bpy.data.node_groups.get("FPv4 Vertex Crunch")
-                set_geo_nodes_param(vertex_crunch_modifier, "Material", material)
+                vertex_crunch_modifier = master_mesh.modifiers.new(VERTEX_CRUNCH_NAME, type="NODES")
+                vertex_crunch_modifier.node_group = bpy.data.node_groups.get(VERTEX_CRUNCH_NAME)
+                set_geo_nodes_param(vertex_crunch_modifier, "Material", material, self.version_profile)
                 for name, value in elements.items():
-                    set_geo_nodes_param(vertex_crunch_modifier, name, value == 1)
+                    set_geo_nodes_param(vertex_crunch_modifier, name, value == 1, self.version_profile)
 
             shape_keys = master_mesh.data.shape_keys
             if (len(self.override_morph_targets) > 0) and shape_keys is not None:
@@ -254,16 +240,7 @@ class MeshImportContext:
                             key.value = 1.0
 
         meta["TextureData"] = mesh.get("TextureData")
-
-        # Lowercase part hint for the optional Forge V4 material setup
-        # (processing/forge.py) - the material name still wins over this hint.
-        meta["ForgePart"] = {
-            EFortCustomPartType.HEAD: "head",
-            EFortCustomPartType.BODY: "body",
-            EFortCustomPartType.HAT: "faceacc",
-            EFortCustomPartType.FACE: "faceacc",
-        }.get(part_type)
-
+        
         for material in mesh.get("Materials"):
             index = material.get("Slot")
             if index >= len(imported_mesh.material_slots):

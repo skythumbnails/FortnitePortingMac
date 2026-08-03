@@ -25,7 +25,6 @@ public partial class FileBrowser : UserControl
     public event Action<TreeItem>? FileItemDoubleTapped;
 
     private bool _suppressSelectionChange;
-    private bool _syncingVfsFilterSelection;
     private PointerPressedEventArgs? _dragPressArgs;
     private Point _dragStartPosition;
 
@@ -160,16 +159,6 @@ public partial class FileBrowser : UserControl
 
         TaskService.Run(ExportClient.DiscoverAsync);
 
-        if (OperatingSystem.IsMacOS())
-        {
-            // Avalonia 11.3.x cannot originate file drags on macOS (AvaloniaUI/Avalonia#10576):
-            // DataFormats.Files/FileNames are marshalled to the legacy NSFilenamesPboardType on an
-            // NSPasteboardItem, which only accepts UTI types — drop targets never see a file URL.
-            // Begin the NSDraggingSession ourselves with an NSURL pasteboard writer instead.
-            e.Pointer.Capture(null);
-            if (MacFileDrag.BeginDrag(TopLevel.GetTopLevel(this)!, dragDropInfoFile)) return;
-        }
-
         var storageFile = await TopLevel.GetTopLevel(this)!
             .StorageProvider
             .TryGetFileFromPathAsync(new Uri(dragDropInfoFile));
@@ -273,38 +262,6 @@ public partial class FileBrowser : UserControl
         Context.UseFlatView = true;
         Context.FlatSearchFilter = searchTerm;
         Context.FlatSearchText = searchTerm;
-    }
-
-    private void OnVfsFilterFlyoutOpened(object? sender, EventArgs e)
-    {
-        if (sender is not Flyout { Content: ListBox listBox }) return;
-        SyncVfsFilterListBoxSelection(listBox);
-    }
-
-    private void OnVfsFilterSelectionChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        if (_syncingVfsFilterSelection) return;
-
-        foreach (var item in e.AddedItems.OfType<VfsFilterItem>())
-            item.IsChecked = true;
-
-        foreach (var item in e.RemovedItems.OfType<VfsFilterItem>())
-            item.IsChecked = false;
-    }
-
-    private void SyncVfsFilterListBoxSelection(ListBox listBox)
-    {
-        _syncingVfsFilterSelection = true;
-        try
-        {
-            listBox.SelectedItems?.Clear();
-            foreach (var item in Context.VfsFilterCollection.Where(x => x.IsChecked))
-                listBox.SelectedItems?.Add(item);
-        }
-        finally
-        {
-            _syncingVfsFilterSelection = false;
-        }
     }
 
 }

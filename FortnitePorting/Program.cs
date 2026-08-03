@@ -100,16 +100,6 @@ internal static class Program
     private static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<FortnitePortingApp>()
             .UsePlatformDetect()
-            // Metal was preferred here through 4.1.9, but a mid-2026 macOS update broke SkiaSharp's
-            // Metal render-target creation (hard crash in gr_backendrendertarget_new_metal at
-            // startup). OpenGL renders correctly and smoothly on Apple Silicon; keep Software last.
-            .With(new AvaloniaNativePlatformOptions
-            {
-                RenderingMode = new[]
-                {
-                    AvaloniaNativeRenderingMode.OpenGl,
-                    AvaloniaNativeRenderingMode.Software
-                }
-            })
-            .LogToTrace();
+            .LogToTrace()
+            .With(new Win32PlatformOptions { CompositionMode = [Win32CompositionMode.WinUIComposition] });
 }

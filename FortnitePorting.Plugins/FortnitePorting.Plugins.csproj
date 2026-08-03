@@ -4,7 +4,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <AvaloniaResource Include="Blender\**" Exclude="Blender\**\__pycache__\**;Blender\**\._*;Blender\**\.DS_Store" />
+        <AvaloniaResource Include="Blender\**" />
         <AvaloniaResource Include="Unreal\**" />
     </ItemGroup>
 
