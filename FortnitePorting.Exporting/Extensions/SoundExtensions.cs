@@ -31,10 +31,10 @@ public static class SoundExtensions
                 SaveADPCMAsWav(data, path, vgmStream);
                 break;
             case "binka":
-                SaveBinkaAsWav(data, path, binkaDecoder);
+                SaveBinkaAsWav(data, path, binkaDecoder, vgmStream);
                 break;
             case "rada":
-                SaveRadaAsWav(data, path, radaDecoder);
+                SaveRadaAsWav(data, path, radaDecoder, vgmStream);
                 break;
         }
 
@@ -84,21 +84,37 @@ public static class SoundExtensions
         return false;
     }
 
-    public static void SaveBinkaAsWav(byte[] data, string outPath, FileInfo? binkaDecoder = null)
+    public static void SaveBinkaAsWav(byte[] data, string outPath, FileInfo? binkaDecoder = null, FileInfo? vgmStream = null)
     {
-        if (binkaDecoder is null) return;
+        if (OperatingSystem.IsMacOS() ? vgmStream is null : binkaDecoder is null) return;
         var binkaPath = Path.ChangeExtension(outPath, "binka");
         File.WriteAllBytes(binkaPath, data);
 
         using (var binkaProcess = new Process())
         {
-            binkaProcess.StartInfo = new ProcessStartInfo
+            // binkadec is a Windows-only RAD Game Tools binary. vgmstream-cli (which is shipped on
+            // macOS via DependencyService.EnsureVgmStream) supports Bink Audio decoding, so route
+            // through it on Mac instead.
+            if (OperatingSystem.IsMacOS())
             {
-                FileName = binkaDecoder.FullName,
-                Arguments = $"-i \"{binkaPath}\" -o \"{outPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
+                binkaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = vgmStream!.FullName,
+                    Arguments = $"-o \"{outPath}\" \"{binkaPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+            else
+            {
+                binkaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = binkaDecoder!.FullName,
+                    Arguments = $"-i \"{binkaPath}\" -o \"{outPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
 
             binkaProcess.Start();
             binkaProcess.WaitForExit();
@@ -107,22 +123,36 @@ public static class SoundExtensions
         FileSystemExtensions.TryDeleteFile(binkaPath);
     }
 
-    public static void SaveRadaAsWav(byte[] data, string outPath, FileInfo? radaDecoder = null)
+    public static void SaveRadaAsWav(byte[] data, string outPath, FileInfo? radaDecoder = null, FileInfo? vgmStream = null)
     {
-        if (radaDecoder is null) return;
+        if (OperatingSystem.IsMacOS() ? vgmStream is null : radaDecoder is null) return;
         var radaPath = Path.ChangeExtension(outPath, "rada");
         File.WriteAllBytes(radaPath, data);
 
         using (var radaProcess = new Process())
         {
-            radaProcess.StartInfo = new ProcessStartInfo
+            // radadec isn't shipped on macOS either; fall back to vgmstream-cli the same way.
+            if (OperatingSystem.IsMacOS())
             {
-                FileName = radaDecoder.FullName,
-                Arguments = $"-i \"{radaPath}\" -o \"{outPath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true
-            };
+                radaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = vgmStream!.FullName,
+                    Arguments = $"-o \"{outPath}\" \"{radaPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+            }
+            else
+            {
+                radaProcess.StartInfo = new ProcessStartInfo
+                {
+                    FileName = radaDecoder!.FullName,
+                    Arguments = $"-i \"{radaPath}\" -o \"{outPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+            }
 
             radaProcess.Start();
             radaProcess.WaitForExit();

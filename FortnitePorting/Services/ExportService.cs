@@ -68,7 +68,7 @@ public class ExportService(
         });
     }
 
-    public async Task<bool> Export(Func<ExportSession, IEnumerable<BaseExport>> exportFunction, ExportDataMeta metaData)
+    public async Task<bool> Export(Func<ExportSession, IEnumerable<BaseExport>> exportFunction, ExportDataMeta metaData, bool reclaimMemory = true)
     {
         if (metaData.ExportLocation is EExportLocation.CustomFolder && await app.BrowseFolderDialog() is { } path)
         {
@@ -105,6 +105,19 @@ public class ExportService(
 
             exportedProperly = !metaData.CancellationToken.IsCancellationRequested;
         });
+
+        // After a successful send, thousands of parsed UObjects/textures from this export are dead on
+        // our side but have just spiked the heap. A single compacting collection here hands that memory
+        // back to the OS while Blender is importing, so the combined footprint doesn't push the machine
+        // into swap and crash Blender — the main reason single-asset ports were unstable.
+        //
+        // reclaimMemory is false for World/map exports: those run this path once PER region in a loop,
+        // and a full compacting collect after every region is what made map exports crawl. Maps skip it.
+        if (reclaimMemory)
+        {
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        }
 
         return exportedProperly;
     }
@@ -145,12 +158,12 @@ public class ExportService(
             CreateExportWithProgress(session, asset.Name, asset, type, [], metaData)), metaData);
     }
 
-    public async Task<bool> Export(UObject asset, EExportType type, ExportDataMeta metaData)
+    public async Task<bool> Export(UObject asset, EExportType type, ExportDataMeta metaData, bool reclaimMemory = true)
     {
         return await Export(session =>
         [
             CreateExportWithProgress(session, asset.Outer?.Name.Text.SubstringAfterLast("/") ?? asset.Name, asset, type, [], metaData)
-        ], metaData);
+        ], metaData, reclaimMemory);
     }
 
     public async Task<bool> Export(UObject asset, ExportDataMeta metaData)

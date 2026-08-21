@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,7 +17,7 @@ using FortnitePorting.Services;
 using FortnitePorting.ViewModels;
 using FortnitePorting.Windows;
 using Material.Icons;
-using NAudio.Wave;
+using Serilog;
 
 namespace FortnitePorting.WindowModels;
 
@@ -29,7 +31,7 @@ public partial class MusicPlayerWindowModel(
 
     private readonly MusicViewModel _music = music;
 
-    public AudioPlaybackSession Session { get; } = audio.CreateSession();
+    private readonly AudioPlaybackService _audio = audio;
 
     [ObservableProperty] private MusicPackItem? _activeItem;
 
@@ -44,46 +46,47 @@ public partial class MusicPlayerWindowModel(
     [ObservableProperty] private bool _isLooping;
     [ObservableProperty] private bool _isShuffling;
 
-    private CancellationTokenSource _playbackCts = new();
+    public object? AudioReader = null;
+    public object OutputDevice = null;
+
+    private Process? _afPlay;
+    private string? _currentWavPath;
+    private DateTime _resumeUtc;
+    private TimeSpan _accumulated;
+    private bool _isPausedExternally;
 
     private readonly DispatcherTimer _updateTimer = new()
     {
-        Interval = TimeSpan.FromMilliseconds(1)
+        Interval = TimeSpan.FromMilliseconds(200)
     };
 
     public override async Task Initialize()
     {
         _updateTimer.Tick += OnUpdateTimerTick;
         _updateTimer.Start();
+        _audio.VolumeChanged += OnServiceVolumeChanged;
     }
 
     public override async Task OnViewExited()
     {
         _updateTimer.Stop();
         _updateTimer.Tick -= OnUpdateTimerTick;
-        await _playbackCts.CancelAsync();
-        _playbackCts.Dispose();
-        Session.Dispose();
+        _audio.VolumeChanged -= OnServiceVolumeChanged;
+        StopAfPlay();
     }
 
     public override void OnApplicationExit()
     {
+        Stop(suppressClose: true);
         WindowManager.FindOpen<MusicPlayerWindow>()?.Close();
     }
 
     private void OnUpdateTimerTick(object? sender, EventArgs e)
     {
-        if (Session.Reader is null) return;
-
-        TotalTime = Session.TotalTime;
-        CurrentTime = Session.CurrentTime;
-
-        if (CurrentTime < TotalTime) return;
-
-        if (IsLooping)
-            Restart();
-        else
-            Next();
+        if (!IsPlaying) return;
+        var elapsed = _accumulated + (DateTime.UtcNow - _resumeUtc);
+        if (TotalTime > TimeSpan.Zero && elapsed > TotalTime) elapsed = TotalTime;
+        CurrentTime = elapsed;
     }
 
     [RelayCommand]
@@ -97,107 +100,119 @@ public partial class MusicPlayerWindowModel(
     [RelayCommand]
     public void Previous()
     {
-        if (ActiveItem is null) return;
-
-        var idx = _music.PlaylistMusicPacks.IndexOf(ActiveItem) - 1;
-        if (idx < 0) idx = _music.PlaylistMusicPacks.Count - 1;
-
-        if (Session.CurrentTime.TotalSeconds > 5)
-        {
-            Restart();
-            return;
-        }
-
-        CurrentTime = TimeSpan.Zero;
-        PlayItem(_music.PlaylistMusicPacks[idx]);
+        var list = _music.PlaylistMusicPacks;
+        if (ActiveItem is null || list.Count == 0) return;
+        var idx = list.IndexOf(ActiveItem);
+        if (idx < 0) return;
+        var prev = list[(idx - 1 + list.Count) % list.Count];
+        PlayItem(prev);
     }
 
     [RelayCommand]
     public void Next()
     {
-        if (ActiveItem is null) return;
-
-        var idx = IsShuffling
-            ? Random.Shared.Next(0, _music.PlaylistMusicPacks.Count)
-            : _music.PlaylistMusicPacks.IndexOf(ActiveItem) + 1;
-
-        if (idx >= _music.PlaylistMusicPacks.Count) idx = 0;
-
-        CurrentTime = TimeSpan.Zero;
-        PlayItem(_music.PlaylistMusicPacks[idx]);
+        var list = _music.PlaylistMusicPacks;
+        if (ActiveItem is null || list.Count == 0) return;
+        var idx = list.IndexOf(ActiveItem);
+        if (idx < 0) return;
+        var next = list[(idx + 1) % list.Count];
+        PlayItem(next);
     }
 
     [RelayCommand]
-    public void CloseWindow() => Window?.Close();
+    public void CloseWindow()
+    {
+        Stop(suppressClose: true);
+        Window?.Close();
+    }
 
     public void PlayItem(MusicPackItem item)
     {
-        if (item.IsUnsupported)
-        {
-            Info.Message("Unsupported Lobby Music Format",
-                $"\"{item.TrackName}\" uses a new format for lobby music that is currently unsupported.");
-            return;
-        }
+        if (item.SoundWave is null) return;
 
-        if (!SoundExtensions.TrySaveSoundToAssets(
-                item.SoundWave.Load<USoundWave>(),
-                AppSettings.Application.AssetPath,
-                out Stream stream,
-                Dependencies.BinkaDecoderFile,
-                Dependencies.RadaDecoderFile,
-                Dependencies.VgmStreamFile)) return;
+        StopAfPlay();
 
-        _playbackCts.Cancel();
-        _playbackCts.Dispose();
-        _playbackCts = new CancellationTokenSource();
-        var cts = _playbackCts;
-
-        Stop(suppressClose: true);
+        if (ActiveItem is not null && !ReferenceEquals(ActiveItem, item))
+            ActiveItem.IsPlaying = false;
 
         ActiveItem = item;
-        Session.Load(stream);
 
-        Discord.Update($"Listening to \"{ActiveItem.TrackName}\"");
-
-        TaskService.RunDispatcher(() => MusicPlayerWindow.Open());
-
-        TaskService.Run(() =>
+        try
         {
-            Play();
-
-            while (Session.PlaybackState != PlaybackState.Stopped)
+            if (!SoundExtensions.TrySaveSoundToAssets(
+                    item.SoundWave.Load<USoundWave>(),
+                    AppSettings.Application.AssetPath,
+                    out string wavPath,
+                    Dependencies.BinkaDecoderFile,
+                    Dependencies.RadaDecoderFile,
+                    Dependencies.VgmStreamFile))
             {
-                if (cts.IsCancellationRequested) return;
+                return;
             }
+            _currentWavPath = wavPath;
+            TotalTime = TryReadWavDuration(wavPath);
+            CurrentTime = TimeSpan.Zero;
+            _accumulated = TimeSpan.Zero;
+            StartAfPlay(wavPath);
+            item.IsPlaying = true;
+            IsPlaying = true;
+            _resumeUtc = DateTime.UtcNow;
 
-            if (!cts.IsCancellationRequested)
-                Stop(suppressClose: false);
-        });
+            Discord.Update($"Listening to \"{item.TrackName}\"");
+
+            TaskService.RunDispatcher(() => MusicPlayerWindow.Open());
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Failed to start playback for {Track}", item.TrackName);
+        }
     }
 
     public void Play()
     {
         if (ActiveItem is null) return;
-        Session.Play();
-        IsPlaying = true;
-        ActiveItem.IsPlaying = true;
+
+        if (_isPausedExternally && _afPlay is not null && !_afPlay.HasExited)
+        {
+            try { Process.Start("/bin/kill", $"-CONT {_afPlay.Id}"); } catch { }
+            _isPausedExternally = false;
+            _resumeUtc = DateTime.UtcNow;
+            IsPlaying = true;
+            ActiveItem.IsPlaying = true;
+            return;
+        }
+
+        if (_currentWavPath is not null && (_afPlay is null || _afPlay.HasExited))
+        {
+            StartAfPlay(_currentWavPath);
+            _resumeUtc = DateTime.UtcNow;
+            IsPlaying = true;
+            ActiveItem.IsPlaying = true;
+        }
     }
 
     public void Pause()
     {
-        if (ActiveItem is null) return;
-        Session.Pause();
+        if (_afPlay is null || _afPlay.HasExited) return;
+        try { Process.Start("/bin/kill", $"-STOP {_afPlay.Id}"); } catch { }
+        _accumulated += DateTime.UtcNow - _resumeUtc;
+        _isPausedExternally = true;
         IsPlaying = false;
-        ActiveItem.IsPlaying = false;
+        if (ActiveItem is not null) ActiveItem.IsPlaying = false;
     }
 
     public void Stop(bool suppressClose = false)
     {
-        if (ActiveItem is null) return;
-        Session.Stop();
-        ActiveItem.IsPlaying = false;
+        StopAfPlay();
+        _accumulated = TimeSpan.Zero;
+        CurrentTime = TimeSpan.Zero;
         IsPlaying = false;
-        Session.CurrentTime = TimeSpan.Zero;
+        _isPausedExternally = false;
+        if (ActiveItem is not null)
+        {
+            ActiveItem.IsPlaying = false;
+            if (!suppressClose) ActiveItem = null;
+        }
 
         if (!suppressClose && WindowManager.FindOpen<MusicPlayerWindow>() is not null)
             TaskService.RunDispatcher(() => WindowManager.FindOpen<MusicPlayerWindow>()?.Close());
@@ -205,13 +220,138 @@ public partial class MusicPlayerWindowModel(
 
     public void Restart()
     {
-        if (Session.Reader is null) return;
-        Session.CurrentTime = TimeSpan.Zero;
-        Session.Play();
+        if (ActiveItem is null || _currentWavPath is null) return;
+        StopAfPlay();
+        _accumulated = TimeSpan.Zero;
+        CurrentTime = TimeSpan.Zero;
+        StartAfPlay(_currentWavPath);
+        _resumeUtc = DateTime.UtcNow;
         IsPlaying = true;
-        if (ActiveItem is not null)
-            ActiveItem.IsPlaying = true;
+        ActiveItem.IsPlaying = true;
     }
 
-    public void Scrub(TimeSpan time) => Session.Scrub(time);
+    public void Scrub(TimeSpan time) { /* afplay does not support seeking */ }
+
+    private void OnServiceVolumeChanged()
+    {
+        if (_afPlay is not null && !_afPlay.HasExited && _currentWavPath is not null)
+        {
+            // afplay's volume is set at start; restart with the new volume to apply.
+            var wasPaused = _isPausedExternally;
+            var keepPos = _accumulated + (wasPaused ? TimeSpan.Zero : DateTime.UtcNow - _resumeUtc);
+            StopAfPlay();
+            StartAfPlay(_currentWavPath);
+            _resumeUtc = DateTime.UtcNow;
+            _accumulated = keepPos;
+            IsPlaying = true;
+            _isPausedExternally = false;
+            if (ActiveItem is not null) ActiveItem.IsPlaying = true;
+        }
+    }
+
+    private void StartAfPlay(string wavPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("/usr/bin/afplay")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add("-v");
+            psi.ArgumentList.Add(_audio.Volume.ToString(CultureInfo.InvariantCulture));
+            psi.ArgumentList.Add(wavPath);
+
+            _afPlay = new Process { StartInfo = psi, EnableRaisingEvents = true };
+            _afPlay.Exited += OnAfPlayExited;
+            _afPlay.Start();
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "afplay failed to start");
+            _afPlay = null;
+        }
+    }
+
+    private void StopAfPlay()
+    {
+        if (_afPlay is null) return;
+        try
+        {
+            _afPlay.Exited -= OnAfPlayExited;
+            if (!_afPlay.HasExited) _afPlay.Kill(true);
+        }
+        catch { }
+        _afPlay = null;
+        _isPausedExternally = false;
+    }
+
+    private void OnAfPlayExited(object? sender, EventArgs e)
+    {
+        if (sender is not Process p || !ReferenceEquals(p, _afPlay)) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            IsPlaying = false;
+            if (ActiveItem is not null) ActiveItem.IsPlaying = false;
+            if (IsLooping && ActiveItem is not null && _currentWavPath is not null)
+            {
+                _accumulated = TimeSpan.Zero;
+                StartAfPlay(_currentWavPath);
+                _resumeUtc = DateTime.UtcNow;
+                IsPlaying = true;
+                ActiveItem.IsPlaying = true;
+            }
+            else
+            {
+                Next();
+            }
+        });
+    }
+
+    private static TimeSpan TryReadWavDuration(string path)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            using var br = new BinaryReader(fs);
+            if (br.ReadUInt32() != 0x46464952) return TimeSpan.Zero; // "RIFF"
+            br.ReadUInt32();
+            if (br.ReadUInt32() != 0x45564157) return TimeSpan.Zero; // "WAVE"
+            uint sampleRate = 0; ushort channels = 0; ushort bitsPerSample = 0; uint dataSize = 0;
+            while (fs.Position < fs.Length - 8)
+            {
+                var id = br.ReadUInt32();
+                var size = br.ReadUInt32();
+                if (id == 0x20746d66) // "fmt "
+                {
+                    var start = fs.Position;
+                    br.ReadUInt16();
+                    channels = br.ReadUInt16();
+                    sampleRate = br.ReadUInt32();
+                    br.ReadUInt32();
+                    br.ReadUInt16();
+                    bitsPerSample = br.ReadUInt16();
+                    fs.Position = start + size;
+                }
+                else if (id == 0x61746164) // "data"
+                {
+                    dataSize = size;
+                    break;
+                }
+                else
+                {
+                    fs.Position += size;
+                }
+            }
+            if (sampleRate == 0 || channels == 0 || bitsPerSample == 0) return TimeSpan.Zero;
+            var seconds = dataSize / (double)(sampleRate * channels * (bitsPerSample / 8));
+            return TimeSpan.FromSeconds(seconds);
+        }
+        catch
+        {
+            return TimeSpan.Zero;
+        }
+    }
 }
