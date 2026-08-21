@@ -14,7 +14,7 @@ namespace CUE4Parse.UE4.Assets.Exports.Texture;
 
 public class UBinkMediaTexture : UTexture;
 
-public abstract class UTexture : UUnrealMaterial, IAssetUserData
+public class UTexture : UUnrealMaterial, IAssetUserData
 {
     
     public FGuid LightingGuid { get; private set; }
@@ -89,7 +89,7 @@ public abstract class UTexture : UUnrealMaterial, IAssetUserData
             {
                 if (FUE5MainStreamObjectVersion.Get(Ar) < FUE5MainStreamObjectVersion.Type.TextureSourceVirtualization)
                 {
-                    new FByteBulkData(Ar);
+                    SourceArt = new FByteBulkData(Ar);
                 }
                 else
                 {
@@ -111,7 +111,6 @@ public abstract class UTexture : UUnrealMaterial, IAssetUserData
             bSerializeMipData = data.X > 0 && data.Y == 0 && data.Z > 0 || Ar.ReadBoolean();
         }
         var pixelFormatName = Ar.ReadFName();
-        if (pixelFormatName.Text == "PF_BC6H_Signed") pixelFormatName = "PF_BC6H";
         while (!pixelFormatName.IsNone)
         {
             if (!Enum.TryParse(pixelFormatName.Text, ignoreCase: true, out EPixelFormat pixelFormat))
@@ -129,11 +128,11 @@ public abstract class UTexture : UUnrealMaterial, IAssetUserData
             {
                 //?? check whether we can support this pixel format
 #if DEBUG
-                //Log.Debug("Loading data for format {Format}", pixelFormatName);
+                Log.Debug("Loading data for format {Format}", pixelFormatName);
 #endif
                 PlatformData = new FTexturePlatformData(Ar, this, bSerializeMipData);
 
-                if (Ar.Game is GAME_SeaOfThieves or GAME_DeltaForce) Ar.Position += 4;
+                if (Ar.Game is GAME_SeaOfThieves or GAME_DeltaForce or GAME_PUBGLite) Ar.Position += 4;
 
                 if (Ar.AbsolutePosition != skipOffset)
                 {
@@ -275,7 +274,7 @@ public abstract class UTexture : UUnrealMaterial, IAssetUserData
         // ???
     }
 
-    public override void GetParams(CMaterialParams2 parameters, EMaterialFormat format)
+    public override void GetParams(CMaterialParams2 parameters, EMaterialDepth depth)
     {
         // Default empty method
         // ???

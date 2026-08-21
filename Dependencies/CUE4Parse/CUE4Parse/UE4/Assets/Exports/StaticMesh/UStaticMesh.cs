@@ -17,15 +17,14 @@ public class UStaticMesh : UObject
     public FGuid LightingGuid { get; private set; }
     public FPackageIndex[] Sockets { get; private set; } // UStaticMeshSocket[]
     public FStaticMeshRenderData? RenderData { get; private set; }
-    public FStaticMaterial[]? StaticMaterials { get; private set; }
-    public ResolvedObject?[] Materials { get; private set; } // UMaterialInterface[]
+    public FPackageIndex?[] Materials { get; private set; } = []; // UMaterialInterface[]
+    public FStaticMaterial[] StaticMaterials { get; private set; } = [];
     public int LODForCollision { get; private set; }
 
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
         if(Ar.Game == GAME_WorldofJadeDynasty) Ar.Position += 12;
         base.Deserialize(Ar, validPos);
-        Materials = [];
         LODForCollision = GetOrDefault(nameof(LODForCollision), 0);
 
         var stripDataFlags = new FStripDataFlags(Ar);
@@ -45,7 +44,10 @@ public class UStaticMesh : UObject
             if (Ar.Ver < EUnrealEngineObjectUE4Version.DEPRECATED_STATIC_MESH_THUMBNAIL_PROPERTIES_REMOVED)
             {
                  var dummyThumbnailAngle = new FRotator(Ar);
-                 var dummyThumbnailDistance = Ar.Read<float>();
+                 if (Ar.Ver >= EUnrealEngineObjectUE3Version.STATICMESH_THUMBNAIL_DISTANCE)
+                 {
+                     var dummyThumbnailDistance = Ar.Read<float>();
+                 }
             }
 
             if (FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.DeprecatedHighResSourceMesh)
@@ -55,8 +57,19 @@ public class UStaticMesh : UObject
             }
         }
 
-        LightingGuid = Ar.Read<FGuid>(); // LocalLightingGuid
-        Sockets = Ar.ReadArray(() => new FPackageIndex(Ar));
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.INTEGRATED_LIGHTMASS)
+        {
+            LightingGuid = Ar.Read<FGuid>(); // LocalLightingGuid
+        }
+        else
+        {
+            LightingGuid = FGuid.Random();
+        }
+
+        if (Ar.Ver > EUnrealEngineObjectUE4Version.STATIC_MESH_SOCKETS)
+        {
+            Sockets = Ar.ReadArray(() => new FPackageIndex(Ar));
+        }
 
         if (!Ar.IsFilterEditorOnly)
         {
@@ -79,7 +92,7 @@ public class UStaticMesh : UObject
             Ar.Position += 64; // 8 per-platform floats
         }
 
-        if (Ar.Game is GAME_RocoKingdomWorld) Ar.Position += 4;
+        if (Ar.Game is GAME_RocoKingdomWorld or GAME_SilverPalace) Ar.Position += 4;
 
         if (bCooked && Ar.Game is >= GAME_UE4_20 and < GAME_UE5_0 && Ar.Game != GAME_DreamStar) // DS removed this for some reason
         {
@@ -144,6 +157,9 @@ public class UStaticMesh : UObject
                 }
                 Ar.SkipFixedArray(12);
                 break;
+            case GAME_PUBGLite when Ar.ReadBoolean():
+                Ar.SkipMultipleBulkArrayData(2);
+                break;
         }
 
         // (Ar.Ver >= EUnrealEngineObjectUE4Version.SPEEDTREE_STATICMESH), but we check UE version for Materials
@@ -160,21 +176,24 @@ public class UStaticMesh : UObject
             {
                 // UE4.14+ - "Materials" are deprecated, added StaticMaterials
                 StaticMaterials = bHasSpeedTreeWind ? GetOrDefault("StaticMaterials", Array.Empty<FStaticMaterial>()) : Ar.ReadArray(() => new FStaticMaterial(Ar));
-
-                Materials = new ResolvedObject[StaticMaterials.Length];
-                for (var i = 0; i < Materials.Length; i++)
-                {
-                    Materials[i] = StaticMaterials[i].MaterialInterface;
-                }
             }
         }
         else if (TryGetValue(out FPackageIndex[] materials, "Materials"))
         {
-            Materials = new ResolvedObject[materials.Length];
+            StaticMaterials = new FStaticMaterial[materials.Length];
             for (var i = 0; i < materials.Length; i++)
             {
-                Materials[i] = materials[i].ResolvedObject!;
+                StaticMaterials[i] = new FStaticMaterial(materials[i]);
             }
+        }
+
+        if (Ar.Game is GAME_TamasShadowveil)
+            StaticMaterials = Ar.ReadArray(() => new FStaticMaterial(Ar));
+
+        Materials = new FPackageIndex?[StaticMaterials.Length];
+        for (var i = 0; i < Materials.Length; i++)
+        {
+            Materials[i] = StaticMaterials[i].MaterialInterface;
         }
 
         Ar.Position += Ar.Game switch
@@ -184,17 +203,6 @@ public class UStaticMesh : UObject
             GAME_DaysGone => Ar.Read<int>() * 4 + 4,
             _ => 0
         };
-    }
-
-    public void OverrideMaterials(FPackageIndex[] materials)
-    {
-        for (var i = 0; i < materials.Length; i++)
-        {
-            if (i >= Materials.Length) break;
-            if (materials[i].IsNull) continue;
-
-            Materials[i] = materials[i].ResolvedObject;
-        }
     }
 
     protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)

@@ -1,19 +1,16 @@
 using System;
+using System.Linq;
+using NAudio.Wave;
 
 namespace FortnitePorting.Services;
 
-// NAudio (WaveOutEvent/DirectSound) is Windows-only, so this build ships without the package.
-// The service keeps upstream's API surface — settings passthrough + change events that
-// TimeWaster/MusicPlayer/ApplicationSettings wire up — while actual playback on macOS goes
-// through afplay in the window models instead of an NAudio output device.
 public class AudioPlaybackService(SettingsService settings) : IService
 {
     public int DeviceIndex => settings.Application.AudioDeviceIndex;
 
     public float Volume => settings.Application.Volume;
 
-    // Output-device selection is DirectSound-based upstream; inert on macOS.
-    public string[] Devices => [];
+    public DirectSoundDeviceInfo[] Devices => DirectSoundOut.Devices.ToArray()[1..];
 
     public event Action? OutputDeviceChanged;
     public event Action? VolumeChanged;
@@ -23,4 +20,18 @@ public class AudioPlaybackService(SettingsService settings) : IService
     public void NotifyVolumeChanged() => VolumeChanged?.Invoke();
 
     public AudioPlaybackSession CreateSession() => new(this);
+
+    public WaveOutEvent CreateOutputDevice(int? desiredLatency = null)
+    {
+        var output = new WaveOutEvent
+        {
+            DeviceNumber = DeviceIndex,
+            Volume = Volume
+        };
+
+        if (desiredLatency is { } latency)
+            output.DesiredLatency = latency;
+
+        return output;
+    }
 }

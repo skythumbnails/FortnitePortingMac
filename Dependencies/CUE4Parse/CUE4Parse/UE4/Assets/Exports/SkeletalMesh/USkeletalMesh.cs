@@ -24,7 +24,7 @@ public partial class USkeletalMesh : UObject
     public FPackageIndex[] MorphTargets { get; private set; }
     public FPackageIndex[] Sockets { get; private set; }
     public FPackageIndex Skeleton { get; private set; }
-    public ResolvedObject?[] Materials { get; private set; } = []; // UMaterialInterface[]
+    public FPackageIndex?[] Materials { get; private set; } = []; // UMaterialInterface[]
     public bool bEnablePerPolyCollision { get; private set; }
     public FPackageIndex PhysicsAsset { get; private set; }
     public FPackageIndex[]? AssetUserData { get; private set; }
@@ -49,7 +49,7 @@ public partial class USkeletalMesh : UObject
         ImportedBounds = new FBoxSphereBounds(Ar);
 
         SkeletalMaterials = Ar.ReadArray(() => new FSkeletalMaterial(Ar));
-        Materials = new ResolvedObject?[SkeletalMaterials.Length];
+        Materials = new FPackageIndex?[SkeletalMaterials.Length];
         for (var i = 0; i < Materials.Length; i++)
         {
             Materials[i] = SkeletalMaterials[i].Material;
@@ -78,6 +78,20 @@ public partial class USkeletalMesh : UObject
             if (Ar.Versions["SkeletalMesh.KeepMobileMinLODSettingOnDesktop"])
             {
                 var minMobileLODIdx = Ar.Read<int>();
+            }
+
+            if (Ar.Game is GAME_GearsofWarEDay)
+            {
+                Ar.SkipBulkArrayData();
+                Ar.SkipArray<uint>();
+                var count = Ar.Read<int>();
+                for (var i = 0; i < count; i++)
+                {
+                    Ar.Position += 8;
+                    Ar.SkipArray<uint>();
+                    Ar.Position += 4;
+                }
+                Ar.Position += 32;
             }
 
             if (bCooked && LODModels == null)
@@ -121,7 +135,7 @@ public partial class USkeletalMesh : UObject
                     }
                 }
 
-                if (Ar.Game >= GAME_UE5_5)
+                if (Ar.Game >= GAME_UE5_5 || Ar.Game is GAME_SilverPalace)
                 {
                     NaniteResources = new FNaniteResources(Ar);
                 }
@@ -145,6 +159,13 @@ public partial class USkeletalMesh : UObject
             }
         }
 
+        if (Ar.Game is GAME_GearsofWarEDay && Ar.ReadBoolean())
+        {
+            Ar.Position += 16;
+            Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 3);
+            Ar.SkipMultipleFixedArrays(Ar.Read<int>(), 32);
+        }
+
         if (Ar.Ver >= EUnrealEngineObjectUE3Version.ADD_SKELMESH_NAMEINDEXMAP && Ar.Ver < EUnrealEngineObjectUE4Version.REFERENCE_SKELETON_REFACTOR)
         {
             var length = Ar.Read<int>();
@@ -156,12 +177,12 @@ public partial class USkeletalMesh : UObject
             case GAME_Back4Blood:
                 Ar.Position += 8;
                 break;
-            default:
+            case >= EGame.GAME_UE4_0:
                 _ = Ar.ReadArray(() => new FPackageIndex(Ar)); // dummyObjs
                 break;
         }
 
-        if (FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.TextureStreamingMeshUVChannelData)
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.DYNAMICTEXTUREINSTANCES && FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.TextureStreamingMeshUVChannelData)
         {
             Ar.SkipFixedArray(sizeof(float));
         }
@@ -178,6 +199,14 @@ public partial class USkeletalMesh : UObject
             }
         }
 
+        if (Ar.Ver >= EUnrealEngineObjectUE3Version.SKELETAL_MESH_SIMPLIFICATION && Ar.Game < EGame.GAME_UE4_0)
+        {
+            var bHaveSourceData = Ar.ReadBoolean();
+            if (bHaveSourceData)
+            {
+                new FStaticLODModel(Ar, bHasVertexColors);
+            }
+        }
         // if (bEnablePerPolyCollision)
         // {
         //     var bodySetup = new FPackageIndex(Ar);
@@ -196,9 +225,9 @@ public partial class USkeletalMesh : UObject
                 var lodModel = LODModels[i];
                 for (var j = 0; j < lodModel.Sections.Length; j++)
                 {
-                    if (j < lodMatMap.Length && lodMatMap[j] >= 0 && lodMatMap[j] < Materials.Length)
+                    if (j < lodMatMap.Length && lodMatMap[j] >= 0 && lodMatMap[j] < SkeletalMaterials.Length)
                     {
-                        lodModel.Sections[j].MaterialIndex = (short) Math.Clamp((ushort) lodMatMap[j], 0, Materials.Length);
+                        lodModel.Sections[j].MaterialIndex = (short) Math.Clamp((ushort) lodMatMap[j], 0, SkeletalMaterials.Length);
                     }
                 }
             }

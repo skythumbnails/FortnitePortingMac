@@ -327,6 +327,7 @@ public class FStaticLODModel
         var bInlined = Ar.ReadBoolean();
 
         RequiredBones = Ar.ReadArray<short>();
+        if (Ar.Game is GAME_GearsofWarEDay) Ar.SkipArray<short>();// another bones array
         if (Ar.Game is GAME_NeedForSpeedMobile) Ar.Position += 4;
         if (!stripDataFlags.IsAudioVisualDataStripped() && !bIsLODCookedOut)
         {
@@ -461,13 +462,7 @@ public class FStaticLODModel
             VertexBufferGPUSkin.VertsFloat = new FGPUVertFloat[NumVertices];
             for (var i = 0; i < VertexBufferGPUSkin.VertsFloat.Length; i++)
             {
-                VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat
-                {
-                    Pos = positionVertexBuffer.Verts[i],
-                    Infs = skinWeightVertexBuffer.Weights[i],
-                    Normal = staticMeshVertexBuffer.UV[i].Normal,
-                    UV = staticMeshVertexBuffer.UV[i].UV
-                };
+                VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat(positionVertexBuffer.Verts[i], skinWeightVertexBuffer.Weights[i], staticMeshVertexBuffer.UV[i]);
             }
         }
 
@@ -489,6 +484,7 @@ public class FStaticLODModel
         var skinWeightVertexBuffer = new FSkinWeightVertexBuffer(Ar, VertexBufferGPUSkin.bExtraBoneInfluences);
 
         if (Ar.Game == GAME_EvilWest) Ar.Position += 22;
+        if (Ar.Game is GAME_GearsofWarEDay && Ar.Peek<int>() == 0) bHasVertexColors = false;
 
         if (bHasVertexColors)
         {
@@ -565,13 +561,7 @@ public class FStaticLODModel
         VertexBufferGPUSkin.VertsFloat = new FGPUVertFloat[NumVertices];
         for (var i = 0; i < VertexBufferGPUSkin.VertsFloat.Length; i++)
         {
-            VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat
-            {
-                Pos = positionVertexBuffer.Verts[i],
-                Infs = skinWeightVertexBuffer.Weights[i],
-                Normal = staticMeshVertexBuffer.UV[i].Normal,
-                UV = staticMeshVertexBuffer.UV[i].UV
-            };
+            VertexBufferGPUSkin.VertsFloat[i] = new FGPUVertFloat(positionVertexBuffer.Verts[i], skinWeightVertexBuffer.Weights[i], staticMeshVertexBuffer.UV[i]);
         }
     }
 

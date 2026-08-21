@@ -42,11 +42,11 @@ public class UMapBuildDataRegistry : UObject
             if (FReflectionCaptureObjectVersion.Get(Ar) >= FReflectionCaptureObjectVersion.Type.MoveReflectionCaptureDataToMapBuildData)
             {
                 if (Ar.Game is GAME_TheFirstDescendant) return;
-
+                if (Ar.Game is GAME_SilverPalace) Ar.SkipFixedArray(17);
                 ReflectionCaptureBuildData = Ar.ReadMap(Ar.Read<FGuid>, () => new FReflectionCaptureMapBuildData(Ar));
             }
 
-            if (Ar.Game is GAME_ArenaBreakoutInfinite or GAME_ArenaBreakoutMobile) return;
+            if (Ar.Game is GAME_ArenaBreakoutInfinite or GAME_ArenaBreakoutMobile or GAME_TamasShadowveil) return;
             if (Ar.Game == GAME_TheDivisionResurgence) Ar.Position += 12;
             if (Ar.Game == GAME_HogwartsLegacy)
             {
@@ -177,7 +177,7 @@ public class FReflectionCaptureData
             Ar.SkipFixedArray(1);
         }
 
-        if (Ar.Game == GAME_Valorant) Ar.SkipFixedArray(1);
+        if (Ar.Game is GAME_Valorant or GAME_TamasShadowveil) Ar.SkipFixedArray(1);
         if (Ar.Game == GAME_LordOfMysteries) Ar.Position += 4;
         if (Ar.Game == GAME_BlackMythWukong)
         {
@@ -229,10 +229,21 @@ public class FVolumeLightingSample
                 Lighting = Ar.ReadArray(3, () => Ar.ReadArray<float>(order * order));
             return;
         }
-        Lighting = Ar.ReadArray(3, () => Ar.ReadArray<float>(order*order));
-        PackedSkyBentNormal = Ar.Read<FColor>();
-        DirectionalLightShadowing = Ar.Read<float>();
-        if (Ar.Game is GAME_RocoKingdomWorld) Ar.Position += 116;
+        if (Ar.Ver >= EUnrealEngineObjectUE4Version.CHANGED_VOLUME_SAMPLE_FORMAT)
+        {
+            Lighting = Ar.ReadArray(3, () => Ar.ReadArray<float>(order*order));
+        }
+
+        if (Ar.Ver >= EUnrealEngineObjectUE4Version.SKY_BENT_NORMAL)
+        {
+            PackedSkyBentNormal = Ar.Read<FColor>();
+        }
+
+        if (Ar.Ver >= EUnrealEngineObjectUE4Version.VOLUME_SAMPLE_LOW_QUALITY_SUPPORT)
+        {
+            DirectionalLightShadowing = Ar.Read<float>();
+        }
+        if (Ar.Game is EGame.GAME_RocoKingdomWorld) Ar.Position += 116;
     }
 }
 
@@ -330,17 +341,24 @@ public class FPrecomputedVolumetricLightmapData
 
             if (FMobileObjectVersion.Get(Ar) >= FMobileObjectVersion.Type.LQVolumetricLightmapLayers)
             {
-                if (FUE5MainStreamObjectVersion.Get(Ar) <= FUE5MainStreamObjectVersion.Type.MobileStationaryLocalLights)
+                if (FUE5MainStreamObjectVersion.Get(Ar) <= FUE5MainStreamObjectVersion.Type.MobileStationaryLocalLights || Ar.Game is GAME_SilverPalace or GAME_TamasShadowveil)
                 {
                     BrickData.LQLightColor = new FVolumetricLightmapDataLayer(Ar);
                     BrickData.LQLightDirection = new FVolumetricLightmapDataLayer(Ar);
                 }
             }
 
+            if (Ar.Game is GAME_TamasShadowveil)
+            {
+                _ = new FVolumetricLightmapDataLayer(Ar);
+                Ar.Position += 4;
+            }
+
             if (FRenderingObjectVersion.Get(Ar) >= FRenderingObjectVersion.Type.VolumetricLightmapStreaming)
             {
                 SubLevelBrickPositions = Ar.ReadArray<FIntVector>();
                 IndirectionTextureOriginalValues = Ar.ReadArray<FColor>();
+                if (Ar.Game is GAME_SilverPalace) Ar.SkipMultipleFixedArrays([1, 4]);
             }
 
             if (Ar.Game == GAME_SplitFiction) Ar.Position += 8;
@@ -539,6 +557,8 @@ public class FLightMap2D : FLightMap
                 AddVectors[CoefficientIndex] = Ar.Read<FVector4>();
             }
         }
+
+        if (Ar.Game is GAME_TamasShadowveil) Ar.Position += 4;
 
         CoordinateScale = new FVector2D(Ar);
         CoordinateBias = new FVector2D(Ar);

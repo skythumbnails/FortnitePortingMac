@@ -180,7 +180,7 @@ public class FActorTemplateRecord
             return new FStructFallback();
         }
     }
-
+    
     private FStructFallback ReadReferenceTableActorData(FAssetArchive Ar)
     {
         var magic = Ar.Read<uint>(); // E9 9D 18 A2

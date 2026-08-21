@@ -13,10 +13,7 @@ public class UDNAAsset : UObject
     public Dictionary<string, IRawBase> Sections;
     public Dictionary<string, IRawBase> Layers;
     public Lazy<byte[]>? DNAData;
-    public string DnaFileName;
-    
-    public RawDefinition Definition => (RawDefinition) Layers["defn"];
-    public RawBehavior Behavior => (RawBehavior) Layers["bhvr"];
+    public string? DnaFileName;
 
     private readonly byte[] _signature = "DNA"u8.ToArray();
     private readonly byte[] _eof = "AND"u8.ToArray();
@@ -25,7 +22,7 @@ public class UDNAAsset : UObject
     public override void Deserialize(FAssetArchive Ar, long validPos)
     {
         base.Deserialize(Ar, validPos);
-        DnaFileName = GetOrDefault(nameof(DnaFileName), string.Empty);
+        DnaFileName = GetOrDefault<string>(nameof(DnaFileName));
 
         if (FDNAAssetCustomVersion.Get(Ar) >= FDNAAssetCustomVersion.Type.BeforeCustomVersionWasAdded)
         {
@@ -140,31 +137,6 @@ public class UDNAAsset : UObject
         }
 
         return result;
-    }
-
-    public int GetRawControlCount()
-    {
-        return Definition.RawControlNames.Length;
-    }
-
-    public string[] GetRawControlNames()
-    {
-        return Definition.RawControlNames;
-    }
-
-    public string GetRawControlName(int index)
-    {
-        return index >= GetRawControlCount() ? throw new IndexOutOfRangeException($"Index {index} is greater than total raw control count") : Definition.RawControlNames[index];
-    }
-
-    public int GetJointCount()
-    {
-        return Definition.JointNames.Length;
-    }
-
-    public string GetJointName(int index)
-    {
-        return index >= GetJointCount() ? throw new IndexOutOfRangeException($"Index {index} is greater than total joint count") : Definition.JointNames[index];
     }
 
     protected internal override void WriteJson(JsonWriter writer, JsonSerializer serializer)

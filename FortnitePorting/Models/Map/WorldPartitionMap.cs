@@ -23,7 +23,6 @@ using DynamicData;
 using FortnitePorting.Exporting;
 using FortnitePorting.Exporting.Models;
 using FortnitePorting.Extensions;
-using FortnitePorting.Models.Unreal.Landscape;
 using FortnitePorting.Shared.Extensions;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
@@ -269,7 +268,7 @@ public partial class WorldPartitionMap : ObservableObject
                 var world = await UEParse.Provider.SafeLoadPackageObjectAsync<UWorld>(map.Path);
                 if (world is null) continue;
                 
-                exportedProperly &= await Exporter.Export(world, EExportType.World, _exportMeta, reclaimMemory: false);
+                exportedProperly &= await Exporter.Export(world, EExportType.World, _exportMeta);
                 
                 if (_exportMeta.CancellationToken.IsCancellationRequested)
                 {

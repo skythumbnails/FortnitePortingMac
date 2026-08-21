@@ -50,7 +50,6 @@ public partial class AppWindowModel(
     [ObservableProperty] private RepositoryVersion? _updateVersion;
     [ObservableProperty] private BroadcastResponse[] _broadcasts = [];
 
-
     private const string PORTLE_URL = "https://cdn.fortniteporting.app/portle/Portle.exe";
 
     public override async Task Initialize()
@@ -131,7 +130,12 @@ public partial class AppWindowModel(
                 new DialogButton
                 {
                     Text = "Update",
+                    IsPrimary = true,
                     Action = () => TaskService.Run(Update)
+                },
+                new DialogButton
+                {
+                    Text = "Cancel"
                 }
             ]);
         }

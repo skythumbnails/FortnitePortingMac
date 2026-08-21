@@ -24,10 +24,11 @@ public class ULandscapeComponent : UPrimitiveComponent
     public FBox CachedLocalBox;
     public FGuid MapBuildDataId;
 
+    public FPackageIndex? OverrideMaterial;
+    public FPackageIndex? OverrideHoleMaterial;
+
     public Lazy<UTexture2D[]> WeightmapTextures;
-    [UProperty] public UTexture2D HeightmapTexture;
-    [UProperty] public UMaterialInterface? OverrideMaterial;
-    
+
     public FMeshMapBuildData? LegacyMapBuildData;
     public FLandscapeComponentGrassData GrassData;
     public bool bCooked;
@@ -51,6 +52,9 @@ public class ULandscapeComponent : UPrimitiveComponent
         MapBuildDataId = GetOrDefault<FGuid>(nameof(MapBuildDataId));
         WeightmapTextures = new Lazy<UTexture2D[]>(() => GetOrDefault<UTexture2D[]>("WeightmapTextures", []));
         NamedGrassTypes = GetOrDefault<Dictionary<FName, FPackageIndex>>(nameof(NamedGrassTypes), []);
+
+        OverrideMaterial = GetOrDefault<FPackageIndex?>(nameof(OverrideMaterial));
+        OverrideHoleMaterial = GetOrDefault<FPackageIndex?>(nameof(OverrideHoleMaterial));
 
         if (FRenderingObjectVersion.Get(Ar) < FRenderingObjectVersion.Type.MapBuildDataSeparatePackage)
         {
@@ -99,13 +103,39 @@ public class ULandscapeComponent : UPrimitiveComponent
             return;
         }
 
+        if (Ar.Game is GAME_ArcRaiders)
+        {
+            // indices into vector array, also some other data after
+            CustomGameData = (Ar.ReadArray<FVector>(), Ar.ReadArray<uint>());
+        }
+
         if (Ar.Game >= GAME_UE4_0 && Ar.Game < GAME_UE5_1 && Ar.Position + 4 <= validPos)
         {
             var bCookedMobileData = Ar.ReadBoolean();
             if (bCookedMobileData)
             {
                 PlatformData = new FLandscapeComponentDerivedData(Ar);
+
+                /*
+                // untested
+                if (Ar.Ver >= EUnrealEngineObjectUE4Version.SERIALIZE_LANDSCAPE_ES2_TEXTURES)
+                {
+                    new FPackageIndex(Ar); // MobileMaterialInterface
+                    new FPackageIndex(Ar); // MobileWeightNormalmapTexture
+                }
+                */
             }
+
+            /*
+            // untested
+            if (Ar.Ver >= EUnrealEngineObjectUE4Version.LANDSCAPE_GRASS_COOKING && Ar.Ver < EUnrealEngineObjectUE4Version.SERIALIZE_LANDSCAPE_GRASS_DATA)
+            {
+                var NumChannels = Ar.Read<int>();
+                if (NumChannels > 0)
+                {
+                    Ar.ReadArray(() => new FByteBulkData(Ar)); // OldData (cooked FGrassMap data)
+                }
+            }*/
         }
     }
 

@@ -29,7 +29,6 @@ using FortnitePorting.Services;
 using FortnitePorting.Models;
 using FortnitePorting.Models.Files;
 using FortnitePorting.Models.Information;
-using FortnitePorting.Models.Unreal;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.Views;
 using FortnitePorting.Windows;
@@ -280,6 +279,7 @@ public partial class FilesViewModel(
             new DialogButton
             {
                 Text = "Use Default Mannequin",
+                IsPrimary = true,
                 Action = () => TaskService.Run(async () =>
                     await PreviewAnimationWithMeshAsync(animation, DefaultMannequinMeshPath))
             },

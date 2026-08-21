@@ -3,9 +3,8 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
-             xmlns:material="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
-             xmlns:enums="clr-namespace:CUE4Parse_Conversion.UEFormat.Enums;assembly=CUE4Parse-Conversion"
+             xmlns:enums="clr-namespace:CUE4Parse_Conversion.Writers.UEFormat.Enums;assembly=CUE4Parse-Conversion"
              xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
              xmlns:fortnitePorting="clr-namespace:FortnitePorting"
              xmlns:fpExport="clr-namespace:FortnitePorting;assembly=FortnitePorting.Exporting"
@@ -245,33 +244,6 @@
                                 <controls:SettingsItem.Footer>
                                     <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type settings:EMaterialImportMethod}}"
                                               SelectedItem="{Binding MaterialImportMethod, Converter={StaticResource EnumToRecord}}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Forge Materials"
-                                                   Description="Port skins with the Forge V4 shader instead of the FortnitePorting shader. Only supports Forge V4.">
-                                <controls:SettingsItem.Footer>
-                                    <ToggleSwitch IsChecked="{Binding UseForgeMaterials}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Forge Blend File"
-                                                   Description="Path to your Forge blend. Any filename works — it's detected by its contents.">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBox Text="{Binding ForgeBlendPath, Mode=TwoWay}"
-                                                 Watermark="Ex. /Users/You/Downloads/Forge V4 Official.blend"
-                                                 MaxWidth="500" />
-                                        <Button Margin="4 0 0 0" Command="{Binding BrowseForgeBlendPathCommand}"
-                                                ToolTip.Tip="Browse for your Forge blend">
-                                            <material:MaterialIcon Kind="Folder"/>
-                                        </Button>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Forge Applies To"
-                                                   Description="Which exports get the Forge shader. Anything excluded uses the normal FortnitePorting shader.">
-                                <controls:SettingsItem.Footer>
-                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fortnitePorting:EForgeScope}}"
-                                              SelectedItem="{Binding ForgeScope, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
                         </StackPanel>

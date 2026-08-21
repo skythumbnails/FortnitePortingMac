@@ -15,6 +15,11 @@ internal static class UPropertyCache
 {
     private static readonly ConcurrentDictionary<Type, UPropertyEntry[]> Cache = new();
 
+    public static void ApplyProperties(IPropertyHolder self)
+    {
+        ApplyProperties(self, self);
+    }
+    
     public static void ApplyProperties(IPropertyHolder src, object dst)
     {
         var cached = GetPropertiesByType(dst.GetType());

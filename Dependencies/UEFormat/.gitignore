@@ -1,0 +1,10 @@
+# IDE
+.idea
+
+# Runtime
+__pycache_
+build/
+cmake-build-*/
+
+# Local
+dev/

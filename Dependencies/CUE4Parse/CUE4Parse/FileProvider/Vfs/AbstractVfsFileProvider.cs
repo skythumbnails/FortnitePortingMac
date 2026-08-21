@@ -8,7 +8,7 @@ using CUE4Parse.GameTypes.ApexMobile.Encryption.Aes;
 using CUE4Parse.GameTypes.ArcRaiders.Encryption.Aes;
 using CUE4Parse.GameTypes.BB3.Encryption.Aes;
 using CUE4Parse.GameTypes.DBD.Encryption.Aes;
-using CUE4Parse.GameTypes.DeltaForce.Encryption.Aes;
+using CUE4Parse.GameTypes.DFHO.Encryption.Aes;
 using CUE4Parse.GameTypes.DragonSword.Encryption.Aes;
 using CUE4Parse.GameTypes.DreamStar.Encryption.Aes;
 using CUE4Parse.GameTypes.FSR.Encryption.Aes;
@@ -28,6 +28,7 @@ using CUE4Parse.GameTypes.SD.Encryption.Aes;
 using CUE4Parse.GameTypes.SilverPalace.Encryption;
 using CUE4Parse.GameTypes.Snowbreak.Encryption.Aes;
 using CUE4Parse.GameTypes.Splitgate2.Encryption.Aes;
+using CUE4Parse.GameTypes.Tencent.PUBGMobile.Encryption.Aes;
 using CUE4Parse.GameTypes.Tencent.ValorantSource.Encryption.Aes;
 using CUE4Parse.GameTypes.THPS.Encryption.Aes;
 using CUE4Parse.GameTypes.UDWN.Encryption.Aes;
@@ -78,7 +79,7 @@ namespace CUE4Parse.FileProvider.Vfs
             {
                 GAME_ApexLegendsMobile => ApexLegendsMobileAes.DecryptApexMobile,
                 GAME_Snowbreak => SnowbreakAes.SnowbreakDecrypt,
-                GAME_MarvelRivals => MarvelAes.MarvelDecrypt,
+                GAME_MarvelRivals or GAME_TamasShadowveil => NetEaseAes.NetEaseDecrypt,
                 GAME_Undawn => ToaaAes.ToaaDecrypt,
                 GAME_DeadByDaylight or GAME_DeadByDaylight_Old => DBDAes.DbDDecrypt,
                 GAME_PaxDei => PaxDeiAes.PaxDeiDecrypt,
@@ -105,14 +106,15 @@ namespace CUE4Parse.FileProvider.Vfs
                 GAME_eBaseballProSpirit => ProSpiEncryption.ProSpiDecrypt,
                 GAME_SilverPalace => SilverPalaceAes.SilverPalaceDecrypt,
                 GAME_ValorantSource => ValorantSourceAes.ValorantSourceDecrypt,
+                GAME_PUBGMobile or GAME_PUBGLite => PUBGMobileAes.PUBGMobileDecrypt,
                 _ => null
             };
         }
 
         public abstract void Initialize();
 
-        public void RegisterVfs(FileInfo file) => RegisterVfs(file.FullName);
-        public void RegisterVfs(string file) => RegisterRandomAccessVfs(new FRandomAccessFileStreamArchive(file, Versions), null, openPath => new FRandomAccessFileStreamArchive(openPath, Versions));
+        public virtual void RegisterVfs(FileInfo file) => RegisterVfs(file.FullName);
+        public virtual void RegisterVfs(string file) => RegisterRandomAccessVfs(new FRandomAccessFileStreamArchive(file, Versions), null, openPath => new FRandomAccessFileStreamArchive(openPath, Versions));
 
         public void RegisterVfs(FRandomAccessFileStreamArchive[] stream, Func<string, FArchive>? openContainerStreamFunc = null)
             => RegisterRandomAccessVfs(stream[0], stream.Length > 1 ? stream[1] : null, openContainerStreamFunc);

@@ -1,4 +1,7 @@
 
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+
 namespace CUE4Parse.UE4.Assets.Exports.Texture;
 
 public static class PixelFormatUtils
@@ -77,7 +80,7 @@ public static class PixelFormatUtils
         { EPixelFormat.PF_ASTC_8x8,           new(EPixelFormat.PF_ASTC_8x8,           "ASTC_8x8",               8,          8,          1,          16,           4,                true) },
         { EPixelFormat.PF_ASTC_10x10,         new(EPixelFormat.PF_ASTC_10x10,         "ASTC_10x10",             10,         10,         1,          16,           4,                true) },
         { EPixelFormat.PF_ASTC_12x12,         new(EPixelFormat.PF_ASTC_12x12,         "ASTC_12x12",             12,         12,         1,          16,           4,                true) },
-        
+
         { EPixelFormat.PF_BC6H,               new(EPixelFormat.PF_BC6H,               "BC6H",                   4,          4,          1,          16,           3,                true) },
         { EPixelFormat.PF_BC7,                new(EPixelFormat.PF_BC7,                "BC7",                    4,          4,          1,          16,           4,                true) },
         { EPixelFormat.PF_R8_UINT,            new(EPixelFormat.PF_R8_UINT,            "R8_UINT",                1,          1,          1,          1,            1,                false) },
@@ -98,8 +101,8 @@ public static class PixelFormatUtils
 
         { EPixelFormat.PF_R32G32_UINT,        new(EPixelFormat.PF_R32G32_UINT,        "PF_R32G32_UINT",         1,          1,          1,          8,            2,                false) },
 
-        { EPixelFormat.PF_ETC2_R11_EAC,       new(EPixelFormat.PF_ETC2_R11_EAC,       "PF_ETC2_R11_EAC",        4,          4,          1,          8,            1,                false) },
-        { EPixelFormat.PF_ETC2_RG11_EAC,      new(EPixelFormat.PF_ETC2_RG11_EAC,      "PF_ETC2_RG11_EAC",       4,          4,          1,          16,           2,                false) },
+        { EPixelFormat.PF_ETC2_R11_EAC,       new(EPixelFormat.PF_ETC2_R11_EAC,       "PF_ETC2_R11_EAC",        4,          4,          1,          8,            1,                true) },
+        { EPixelFormat.PF_ETC2_RG11_EAC,      new(EPixelFormat.PF_ETC2_RG11_EAC,      "PF_ETC2_RG11_EAC",       4,          4,          1,          16,           2,                true) },
         { EPixelFormat.PF_R8,                 new(EPixelFormat.PF_R8,                 "R8",                     1,          1,          1,          1,            1,                false) },
         { EPixelFormat.PF_B5G5R5A1_UNORM,     new(EPixelFormat.PF_B5G5R5A1_UNORM,     "B5G5R5A1_UNORM",         1,          1,          1,          2,            4,                false) },
 
@@ -134,6 +137,9 @@ public static class PixelFormatUtils
         { EPixelFormat.PF_R8G8B8,             new(EPixelFormat.PF_R8G8B8,             "R8G8B8",                 1,          1,          1,          3,            3,                false) },
 
         //Custom
+        { EPixelFormat.PF_B4G4R4A4,           new(EPixelFormat.PF_B4G4R4A4,           "B4G4R4A4",               1,          1,          1,          2,            4,                true) },
+        { EPixelFormat.PF_BC6H_Signed,        new(EPixelFormat.PF_BC6H_Signed,        "BC6H_Signed",            4,          4,          1,          16,           3,                true) },
+        { EPixelFormat.PF_ETC2_R11,           new(EPixelFormat.PF_ETC2_R11,           "PF_ETC2_R11",            4,          4,          1,          8,            1,                true) },
         { EPixelFormat.PF_ASTC_8x5,           new(EPixelFormat.PF_ASTC_8x5,           "PF_ASTC_8x5",            8,          5,          1,          16,           4,                true) },
         { EPixelFormat.PF_ASTC_8x6,           new(EPixelFormat.PF_ASTC_8x6,           "PF_ASTC_8x6",            8,          6,          1,          16,           4,                true) },
         { EPixelFormat.PF_ASTC_10x8,          new(EPixelFormat.PF_ASTC_10x8,          "PF_ASTC_10x8",          10,          8,          1,          16,           4,                true) },
@@ -202,6 +208,7 @@ public record FPixelFormatInfo(EPixelFormat UnrealFormat, string Name, int Block
     }
 }
 
+[JsonConverter(typeof(StringEnumConverter))]
 public enum EPixelFormat : byte
 {
     PF_Unknown              = 0,
@@ -301,6 +308,9 @@ public enum EPixelFormat : byte
     PF_MAX                  = 94,
 
     // Custom
+    PF_B4G4R4A4             = 250,
+    PF_BC6H_Signed          = 251,
+    PF_ETC2_R11             = 252,
     PF_ASTC_8x5             = 253,
     PF_ASTC_8x6             = 254,
     PF_ASTC_10x8            = 255,

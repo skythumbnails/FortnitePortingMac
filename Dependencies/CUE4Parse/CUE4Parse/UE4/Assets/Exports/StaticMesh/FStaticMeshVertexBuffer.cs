@@ -15,7 +15,7 @@ public class FStaticMeshVertexBuffer
     public int NumVertices;
     public bool UseFullPrecisionUVs;
     public bool UseHighPrecisionTangentBasis;
-    public FStaticMeshUVItem[] UV;  // TangentsData ?
+    [JsonIgnore] public FStaticMeshUVItem[] UV;  // TangentsData ?
 
     public FStaticMeshVertexBuffer()
     {
@@ -36,6 +36,7 @@ public class FStaticMeshVertexBuffer
         int customData = 0;
         if (Ar.Game is GAME_DeltaForce or GAME_SuicideSquad) Ar.Position += 4;
         if (Ar.Game is GAME_FateTrigger) customData = Ar.Read<int>();
+        if (Ar.Game is GAME_GearsofWarEDay && NumVertices == 0) return;
 
         if (!stripDataFlags.IsAudioVisualDataStripped())
         {

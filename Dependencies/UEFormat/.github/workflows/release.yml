@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package Plugins
+        run: |
+          mkdir -p dist
+
+          (cd plugins/blender && zip -r "$GITHUB_WORKSPACE/dist/ueformat-blender.zip" io_scene_ueformat)
+          (cd plugins/unreal && zip -r "$GITHUB_WORKSPACE/dist/ueformat-unreal.zip" UEFormat)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: UEFormat ${{ github.ref_name }}
+          files: |
+            dist/ueformat-blender.zip
+            dist/ueformat-unreal.zip
+          fail_on_unmatched_files: true

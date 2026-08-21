@@ -1,6 +1,7 @@
 using CUE4Parse.GameTypes._2XKO.Assets.Exports;
 using CUE4Parse.GameTypes.Borderlands4.Assets.Objects;
 using CUE4Parse.GameTypes.Brickadia.Objects;
+using CUE4Parse.GameTypes.DBD.Objects;
 using CUE4Parse.GameTypes.DuneAwakening.Assets.Objects;
 using CUE4Parse.GameTypes.FN.Objects;
 using CUE4Parse.GameTypes.Gothic1R.Assets.Objects;
@@ -307,8 +308,8 @@ public class FScriptStruct
             "EveryPlatformBool" => new FEveryPlatformBool(Ar),
             "EveryPlatformInt" => new FEveryPlatformInt(Ar),
 
-            // Killing Floor 3
-            "HavokAIAnyArray" => new FHavokAIAnyArray(Ar),
+            // Killing Floor 3(AI), Gears of War E-Day(Nav)
+            "HavokAIAnyArray" or "HavokNavAnyArray" => new FHavokAnyArray(Ar, structName),
 
             // Upin&Ipin Universe
             "SUDSValue" => type == ReadType.ZERO ? new FStructFallback() : new FSUDSValue(Ar),
@@ -384,7 +385,7 @@ public class FScriptStruct
 
             "ActorReference" when Ar.Game is GAME_DarkPicturesAnthologyHouseOfAshes or GAME_DarkPicturesAnthologyManofMedan or
                 GAME_DarkPicturesAnthologyLittleHope or GAME_DarkPicturesAnthologyTheDevilinMe or
-                GAME_TheQuarry or GAME_TheCastingofFrankStone or GAME_Directive8020 => new FActorReference(Ar),
+                GAME_TheQuarry or GAME_TheCastingofFrankStone or GAME_Directive8020 or < GAME_UE4_0 => new FActorReference(Ar),
 
             "ParameterWrapperArray" when Ar.Game is GAME_NevernessToEverness => new FStructFallback(Ar, structName, new FRawHeader([(0, 1)], ERawHeaderFlags.RawProperties), ReadType.RAW),
 
@@ -400,6 +401,7 @@ public class FScriptStruct
             "AnimMontageContainer" => new FStructFallback(Ar, structName, FRawHeader.FullRead, ReadType.RAW),
 
             "BHVRVariantConfigurator" when Ar.Game is GAME_DeadByDaylight => new FStructFallback(Ar, structName, FRawHeader.FullRead, ReadType.RAW),
+            "BhvrBarkNodeTemplate" when Ar.Game is GAME_DeadByDaylight => type == ReadType.ZERO ? new FBhvrBarkNodeTemplate() : new FBhvrBarkNodeTemplate(Ar),
 
             "NiagaraEventGeneratorProperties" when Ar.Game is GAME_RocoKingdomWorld => new FNiagaraEventGeneratorProperties(Ar),
 
@@ -434,6 +436,16 @@ public class FScriptStruct
             "RDialogueFactValue" => new FFixedSizeStruct(Ar, 13),
 
             "KGVariantValue" when Ar.Game is GAME_LordOfMysteries => new FKGVariantValue(Ar),
+
+            "SPBattleGenericID" when Ar.Game is GAME_SilverPalace => new FStructFallback(Ar, structName, FRawHeader.FullRead, ReadType.RAW),
+
+            "GameplayEffectVersion" when Ar.Game is GAME_ArcRaiders => Ar.Read<FRawStruct<byte>>(),
+            "AISensingStatusTransition" when Ar.Game is GAME_ArcRaiders => new FStructFallback(Ar, "AISensingStatusTransitionStruct"),//hack for struct/class with the same name
+
+            "TCPresentationCueNamedParam_Vector" or "TCPresentationCueNamedParam_Float" or "TCPresentationCueNamedParam_LinearColor"
+                or "TCGameplayBlackboardNamedParam_Float" or "TCGameplayBlackboardNamedParam_Vector" or "TCPresentationCueNamedParam_Bool"
+                or "TCPresentationCueNamedParam_Texture" or "TCPresentationCueNamedParam_Vector2D" or "TCPresentationCueNamedParam_Material"
+                or "TCPresentationCueNamedParam_StaticMesh" when Ar.Game is GAME_GearsofWarEDay => new FTCNamedParam(Ar, structName),
 
             _ => Ar.Game switch
             {
