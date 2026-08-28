@@ -35,26 +35,8 @@ public static class Globals
     
     public static readonly FilePickerFileType PlaylistFileType = new("Fortnite Porting Playlist") { Patterns = [ "*.fp.playlist" ] };
     public static readonly FilePickerFileType ChatAttachmentFileType = new("Image") { Patterns = [ "*.png", "*.jpg", "*.jpeg" ] };
-    public static readonly FilePickerFileType BlenderFileType = new("Blender")
-    {
-        Patterns =
-        [
-            "blender.exe",   // Windows
-            "Blender",       // macOS app bundle binary
-            "blender",       // Linux
-            "*.app"          // macOS app bundles (Patterns alone don't enable .app selection)
-        ],
-        // macOS NSOpenPanel hides / greys out .app bundles unless the panel is told they're
-        // a permitted type. Listing the bundle UTI tells AppKit to make them selectable.
-        AppleUniformTypeIdentifiers =
-        [
-            "com.apple.application-bundle",
-            "public.unix-executable",
-            "public.executable"
-        ]
-    };
+    public static readonly FilePickerFileType BlenderFileType = new("Blender") { Patterns = ["blender.exe"] };
     public static readonly FilePickerFileType UnrealProjectFileType = new("Unreal Project") { Patterns = ["*.uproject"] };
-    public static readonly FilePickerFileType BlendFileType = new("Blender File") { Patterns = [ "*.blend" ] };
     
     public static readonly FGuid ZERO_GUID = new();
     public const string ZERO_CHAR = "0x0000000000000000000000000000000000000000000000000000000000000000";
@@ -64,4 +46,5 @@ public static class Globals
     public const string GITHUB_URL = "https://github.com/h4lfheart/FortnitePorting";
     public const string KOFI_URL = "https://ko-fi.com/h4lfheart";
     public const string WEBSITE_URL = "https://fortniteporting.app";
+    public const string DOCS_URL = "https://docs.fortniteporting.app";
 }

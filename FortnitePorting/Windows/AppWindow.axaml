@@ -32,7 +32,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <Grid x:Name="SidebarHeader" Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
+                        <Grid Grid.Row="0" IsHitTestVisible="False" RowDefinitions="*,*">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 2}" />
@@ -61,6 +61,8 @@
                         <sidebar:SidebarItemButton Text="Home" Icon="Home" Tag="{x:Type views:HomeView}" />
                         <sidebar:SidebarItemButton Text="News &amp; Updates" Icon="Newspaper"
                                                    Tag="{x:Type views:NewsView}" />
+                        <sidebar:SidebarItemButton Text="Help" Icon="Help" IsSelectable="False"
+                                                   ItemPressed="OnHelpPressed" />
 
                         <sidebar:SidebarItemSeparator />
 
@@ -100,14 +102,7 @@
                                                    Tag="{x:Type views:ExportSettingsView}" />
                         <sidebar:SidebarItemButton Text="App Settings" Icon="Settings"
                                                    Tag="{x:Type views:SettingsView}" />
-                        
-                        <sidebar:SidebarItemSeparator />
-
-                        
-                        <sidebar:SidebarItemText Text="INFO" />
-                        <sidebar:SidebarItemButton Text="Console" Icon="Console" Tag="{x:Type views:ConsoleView}" />
-                        <sidebar:SidebarItemButton Text="Help" Icon="Help" Tag="{x:Type views:HelpView}" />
-
+                       
                     </sidebar:Sidebar.Items>
 
                     <sidebar:Sidebar.Footer>
@@ -438,6 +433,6 @@
                                  Grid.Row="0" 
                                  Grid.RowSpan="2" />
 
-        <controls:WindowTitleBar x:Name="WindowsChromeButtons" Grid.Row="0"/>
+        <controls:WindowTitleBar Grid.Row="0"/>
     </Grid>
 </Window>

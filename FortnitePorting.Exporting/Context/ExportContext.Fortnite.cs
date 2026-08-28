@@ -24,14 +24,8 @@ namespace FortnitePorting.Exporting.Context;
 
 public partial class ExportContext
 {
-    public ExportPart? CharacterPart(UObject? part)
+    public ExportPart? CharacterPart(UObject part)
     {
-        // Fortnite 41.20+: entries in BaseCharacterParts/CharacterParts arrays can fail to
-        // load (on-demand /BRCosmetics packages that aren't streamed in, or otherwise
-        // unresolvable package indices). CUE4Parse materializes those as null array
-        // elements, so skip them instead of throwing a NullReferenceException.
-        if (part is null) return null;
-
         var skeletalMesh = part.GetOrDefault<USkeletalMesh?>("SkeletalMesh");
         if (skeletalMesh is null) return null;
 
@@ -115,15 +109,7 @@ public partial class ExportContext
                     var masterSkeletalMesh = masterSkeletalMeshes
                         .Select(index => index.LoadOrDefault<USkeletalMesh>())
                         .FirstOrDefault(mesh => mesh is not null);
-
-                    // Fallback to the default male base skeleton so outfits whose body parts don't
-                    // resolve a MasterSkeletalMesh (creature outfits, on-demand assets that didn't
-                    // stream the part-specific reference) still carry the metadata the Blender Tasty
-                    // rig builder needs — otherwise create_tasty_rig() gets None and the rig fails
-                    // to apply ("some skins don't port with Tasty").
-                    masterSkeletalMesh ??= Meta.Provider.Provider.SafeLoadPackageObject<USkeletalMesh>(
-                        "/FortniteGame/Content/Characters/Player/Male/Medium/Base/SK_M_MALE_Base_Skeleton");
-
+                    
                     if (masterSkeletalMesh is null) break;
 
                     var meta = new ExportMasterSkeletonMeta

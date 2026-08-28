@@ -37,7 +37,7 @@ public abstract partial class BaseAssetItem : ObservableObject
             return this switch
             {
                 AssetItem assetItem => Regex.IsMatch(assetItem.CreationData.DisplayName, filter)
-                                                    || Regex.IsMatch(assetItem.CreationData.ObjectName, filter)
+                                                    || Regex.IsMatch(assetItem.CreationData.Object.Name, filter)
                                                     || (assetItem.SetName is not null && Regex.IsMatch(assetItem.SetName, filter))
                                                     || (assetItem.Series is not null && Regex.IsMatch(assetItem.Series.DisplayName.Text, filter)),
                 CustomAssetItem customAssetItem =>  Regex.IsMatch(customAssetItem.CreationData.DisplayName, filter),
@@ -48,7 +48,7 @@ public abstract partial class BaseAssetItem : ObservableObject
         return this switch
         {
             AssetItem assetItem => FilterExtensions.Filter(assetItem.CreationData.DisplayName, filter)
-                                   || FilterExtensions.Filter(assetItem.CreationData.ObjectName, filter)
+                                   || FilterExtensions.Filter(assetItem.CreationData.Object.Name, filter)
                                    || (assetItem.SetName is not null && FilterExtensions.Filter(assetItem.SetName, filter))
                                    || (assetItem.Series is not null && FilterExtensions.Filter(assetItem.Series.DisplayName.Text, filter)),
             CustomAssetItem customAssetItem => FilterExtensions.Filter(customAssetItem.CreationData.DisplayName, filter),

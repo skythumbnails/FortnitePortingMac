@@ -7,9 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
-using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
-using FluentAvalonia.Styling;
 using FluentAvalonia.UI.Media.Animation;
 using FortnitePorting.Controls;
 using FortnitePorting.Extensions;
@@ -22,6 +20,7 @@ using FortnitePorting.Models.Radio;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.Validators;
 using Material.Icons;
+using NAudio.Wave;
 using Newtonsoft.Json;
 
 namespace FortnitePorting.ViewModels.Settings;
@@ -73,19 +72,12 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
     [ObservableProperty, NotifyPropertyChangedFor(nameof(TransparencyHints))] private EThemeType _theme = EThemeType.Amethyst;
     
     [JsonIgnore]
-    public ObservableCollection<WindowTransparencyLevel> TransparencyHints => Theme switch
-    {
-        // Mica prefers the Windows Mica material (falls back to blur on macOS).
-        EThemeType.Mica => [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur],
-        // Tahoe's liquid-glass panels need the native blur behind the window to frost through.
-        EThemeType.Tahoe => [WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur],
-        _ => [WindowTransparencyLevel.AcrylicBlur]
-    };
+    public ObservableCollection<WindowTransparencyLevel> TransparencyHints => Theme is EThemeType.Mica ? [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur] : [WindowTransparencyLevel.AcrylicBlur];
     
     public string AssetPath => UseAssetsPath && Directory.Exists(AssetsPath) ? AssetsPath : App.AssetsFolder.FullName;
     
     [JsonIgnore]
-    public string[] AudioDevices => []; // audio output device selection is Windows-only (DirectSound); inert on macOS
+    public DirectSoundDeviceInfo[] AudioDevices => Audio.Devices;
 
     [JsonIgnore]
     public EExportType[] AssetTypes => Enum.GetValues<EExportType>().Where(type => !type.IsDisabled && type.IsAssetType).ToArray();
@@ -122,16 +114,6 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
 
         var themeUri = new Uri($"avares://FortnitePorting/Assets/Themes/{value.ToString()}Theme.axaml");
         if (AvaloniaXamlLoader.Load(themeUri) is FPStyles newTheme)
-        {
             app.Styles.Add(newTheme);
-
-            // Push the theme's accent into FluentAvalonia too, so accent-driven controls
-            // (toggles, sliders, etc.) match the theme instead of the startup default.
-            if (newTheme.TryGetResource("FPAccentColor", null, out var accent) && accent is Color accentColor
-                && app.Styles.OfType<FluentAvaloniaTheme>().FirstOrDefault() is { } fluentTheme)
-            {
-                fluentTheme.CustomAccentColor = accentColor;
-            }
-        }
     }
 }

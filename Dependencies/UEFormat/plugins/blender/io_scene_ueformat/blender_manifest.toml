@@ -4,7 +4,7 @@ type = "add-on"
 license = ["SPDX:GPL-3.0-or-later"]
 
 id = "io_scene_ueformat"
-version = "10.0"
+version = "0.10.0"
 blender_version_min = "4.2.0"
 name = "UEFormat (.uemodel / .ueanim / .uepose)"
 tagline = "Importer for UEFormat Files"

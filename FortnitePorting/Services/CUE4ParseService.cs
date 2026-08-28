@@ -22,6 +22,8 @@ using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Assets.Exports.Animation;
 using CUE4Parse.UE4.Assets.Exports.Engine;
+using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
+using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.IO;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.Core.Math;
@@ -43,6 +45,7 @@ using FortnitePorting.Framework;
 using FortnitePorting.Models.API.Responses;
 using FortnitePorting.Models.CUE4Parse;
 using FortnitePorting.Models.Information;
+using FortnitePorting.Rendering.Preview;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.Views;
 using FortnitePorting.Views.Settings;
@@ -93,9 +96,6 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
     private const EGame LATEST_GAME_VERSION = EGame.GAME_UE6_0;
     
-    // Chunk CDN authority derived from Epic's manifest response (see InitializeProvider).
-    private string _chunkHostAuthority = "http://download.epicgames.com";
-
     public DirectoryInfo CacheFolder => new(Path.Combine(App.ApplicationDataFolder.FullName, ".cache"));
 
     public CUE4ParseService()
@@ -212,14 +212,6 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Initializing CUE4Parse", stage: 0, weight: 5)]
     private async Task InitializeProviderSetup()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Detex.dll is Windows-only. Route BC1-BC7 textures through the managed AssetRipper
-            // decoder so cosmetic icons (typically BC7) render without it. ETC formats still need
-            // Detex but aren't used by Fortnite cosmetics on PC.
-            TextureDecoder.UseAssetRipperTextureDecoder = true;
-        }
-
         Provider = AppSettings.Installation.CurrentProfile.FortniteVersion switch
         {
             EFortniteVersion.LatestOnDemand => new HybridFileProvider(new VersionContainer(LATEST_GAME_VERSION)),
@@ -237,6 +229,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Provider.LoadOnDemandTocs = AppSettings.Installation.CurrentProfile is { TextureStreamingEnabled: true, UseTextureStreaming: true };
         Provider.LoadExtraDirectories = AppSettings.Installation.CurrentProfile.LoadInstalledBundles;
         Provider.ReadNaniteData = AppSettings.Installation.CurrentProfile.LoadNaniteData;
+        Provider.OnDemandOptions = new IoStoreOnDemandOptions
+        {
+            ChunkHostUri = new Uri("https://egdownload.fastly-edge.com/", UriKind.Absolute),
+            ChunkCacheDirectory = CacheFolder,
+            Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token),
+            Timeout = TimeSpan.FromSeconds(AppSettings.Developer.RequestTimeoutSeconds)
+        };
+
         Provider.VfsMounted += (sender, _) =>
         {
             if (sender is not IAesVfsReader reader) return;
@@ -286,29 +286,6 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Loading Detex", stage: 3, weight: 1)]
     private async Task InitializeDetex()
     {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Restore native Oodle on macOS: the managed OodleSharp fallback added upstream in
-            // 4.2.1 cannot decompress some streamed texture/mesh blocks (exports lose parts,
-            // "Failed to decompress Oodle data ... Result: 0"). Same dylib we shipped through 4.1.9.
-            Dependencies.EnsureNoodle();
-            await OodleHelper.InitializeAsync(Dependencies.NoodleFile.FullName);
-            Log.Information("Native Oodle initialized: {Path}", Dependencies.NoodleFile.FullName);
-        }
-
-        if (!OperatingSystem.IsWindows())
-        {
-            // Detex is shipped as a Windows-only DLL. Remove any stale copy a prior run may have
-            // written and skip initialization — only ETC/BPTC textures depend on it.
-            var stalePath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
-            if (File.Exists(stalePath))
-            {
-                try { File.Delete(stalePath); }
-                catch (Exception ex) { Log.Warning(ex, "Could not remove stale {Path}", stalePath); }
-            }
-            return;
-        }
-
         var detexPath = Path.Combine(App.DataFolder.FullName, DetexHelper.DLL_NAME);
         if (!File.Exists(detexPath)) await DetexHelper.LoadDllAsync(detexPath);
         DetexHelper.Initialize(detexPath);
@@ -329,35 +306,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 var manifestInfo = await Api.EpicGames.GetManifestInfoAsync();
                 if (manifestInfo is null) break;
 
-                // Epic is migrating chunk hosting off download.epicgames.com (mid-2026
-                // "predownload" infra); some edges of the old host serve stale or corrupt
-                // chunk data. Use the CDN host Epic's own manifest response points at,
-                // falling back to the legacy host if the response has no manifest URI.
-                var manifestUri = manifestInfo.Elements.FirstOrDefault()?.Manifests.FirstOrDefault()?.Uri;
-                if (manifestUri is not null)
-                    _chunkHostAuthority = manifestUri.GetLeftPart(UriPartial.Authority);
-                var chunkBaseUrl = manifestUri is not null
-                    ? _chunkHostAuthority + manifestUri.AbsolutePath.SubstringBeforeLast("/") + "/"
-                    : "http://download.epicgames.com/Builds/Fortnite/CloudDir/";
-                Log.Information("Chunk base URL: {Url}", chunkBaseUrl);
-
-                // Built here (not at provider setup) so it carries the freshly-verified Epic
-                // token AND the chunk host derived from Epic's manifest response — the legacy
-                // download.epicgames.com host is degrading region-by-region as Epic migrates
-                // CDNs, and this route serves streamed cosmetic payloads (icon textures, body
-                // mesh/texture bulk data). MUST be set before RegisterFiles registers the
-                // .uondemandtoc containers, which construct their downloader from it.
-                Provider.OnDemandOptions = new IoStoreOnDemandOptions
-                {
-                    ChunkHostUri = new Uri(_chunkHostAuthority + "/", UriKind.Absolute),
-                    ChunkCacheDirectory = CacheFolder,
-                    Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token),
-                    Timeout = TimeSpan.FromSeconds(AppSettings.Developer.RequestTimeoutSeconds)
-                };
-
                 var options = new ManifestParseOptions
                 {
-                    ChunkBaseUrl = chunkBaseUrl,
+                    ChunkBaseUrl = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/",
                     ChunkCacheDirectory = CacheFolder.FullName,
                     ManifestCacheDirectory = CacheFolder.FullName,
                     Decompressor = Compression.Decompressor,
@@ -367,14 +318,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 var (manifest, element) = await manifestInfo.DownloadAndParseAsync(options);
                 LiveManifest = manifest;
                 await Provider.RegisterFiles(manifest);
-
-                // Fortnite 41.20+ split cosmetics into a separate "content build": the base manifest
-                // no longer carries the cosmetic paks (or Cloud/IoStoreOnDemand.ini). Instead,
-                // Cloud/cloudcontent.json points at a second FortniteContentBuilds manifest whose
-                // pak/ucas/utoc set holds the cosmetic content — icon textures included. Without
-                // registering it, every cosmetic icon falls back to the pink placeholder.
-                await RegisterContentBuildAsync(manifest);
-
+                
                 var manifests = await Api.Dilly.Manifests();
                 if (manifests.FirstOrDefault(x => x.AppName == "Fortnite_Studio")?.DownloadUrl is { } studioDownloadUrl
                     && await Api.DownloadFileAsync(studioDownloadUrl, CacheFolder) is { } studioManifestFile)
@@ -384,74 +328,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                     await Provider.RegisterFiles(studioManifest);
                 }
 
+                
                 break;
             }
             default:
             {
-                // Built here (not at provider setup) so it carries the freshly-verified Epic
-                // token AND the chunk host derived from Epic's manifest response — the legacy
-                // download.epicgames.com host is degrading region-by-region as Epic migrates
-                // CDNs, and this route serves streamed cosmetic payloads (icon textures, body
-                // mesh/texture bulk data). MUST be set before RegisterFiles registers the
-                // .uondemandtoc containers, which construct their downloader from it.
-                Provider.OnDemandOptions = new IoStoreOnDemandOptions
-                {
-                    ChunkHostUri = new Uri(_chunkHostAuthority + "/", UriKind.Absolute),
-                    ChunkCacheDirectory = CacheFolder,
-                    Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token),
-                    Timeout = TimeSpan.FromSeconds(AppSettings.Developer.RequestTimeoutSeconds)
-                };
-
                 await Provider.InitializeAsync();
                 break;
             }
-        }
-    }
-
-    private async Task RegisterContentBuildAsync(FBuildPatchAppManifest manifest)
-    {
-        try
-        {
-            var cloudContentFile = manifest.Files.FirstOrDefault(x =>
-                x.FileName.Equals("Cloud/cloudcontent.json", StringComparison.OrdinalIgnoreCase));
-            if (cloudContentFile is null) return;
-
-            var cloudContentText = System.Text.Encoding.UTF8.GetString(await cloudContentFile.GetStream().SaveBytesAsync());
-            var contentManifestPath = Newtonsoft.Json.Linq.JObject.Parse(cloudContentText)["ManifestPath"]?.ToString();
-            if (string.IsNullOrEmpty(contentManifestPath)) return;
-
-            UpdateStatus("Loading Content Build");
-            Log.Information("Content build manifest: {Path}", contentManifestPath);
-
-            var contentOptions = new ManifestParseOptions
-            {
-                // Content-build chunks live under the content CloudDir, not the base one.
-                ChunkBaseUrl = _chunkHostAuthority + "/" + contentManifestPath.SubstringBeforeLast("/") + "/",
-                ChunkCacheDirectory = CacheFolder.FullName,
-                ManifestCacheDirectory = CacheFolder.FullName,
-                Decompressor = Compression.Decompressor,
-                CacheChunksAsIs = true
-            };
-
-            var contentManifestFile = new FileInfo(Path.Combine(CacheFolder.FullName, contentManifestPath.SubstringAfterLast("/")));
-            if (!contentManifestFile.Exists || contentManifestFile.Length == 0)
-            {
-                await Api.DownloadFileAsync($"http://download.epicgames.com/{contentManifestPath}", contentManifestFile.FullName);
-                contentManifestFile.Refresh();
-                if (!contentManifestFile.Exists || contentManifestFile.Length == 0)
-                {
-                    await Api.DownloadFileAsync($"{_chunkHostAuthority}/{contentManifestPath}", contentManifestFile.FullName);
-                    contentManifestFile.Refresh();
-                }
-            }
-
-            var contentManifest = FBuildPatchAppManifest.Deserialize(
-                await File.ReadAllBytesAsync(contentManifestFile.FullName), contentOptions);
-            await Provider.RegisterFiles(contentManifest);
-        }
-        catch (Exception e)
-        {
-            Log.Warning("Failed to register content-build archives: {Error}", e.ToString());
         }
     }
 
@@ -528,23 +412,10 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Provider.LoadVirtualPaths();
         Provider.PostMount();
         
-        // Upstream 4.2.2 skips locres entirely for English (nothing to localize). For other
-        // languages, bound the culture load: on a cold chunk cache each locres file can stall
-        // up to the 30s HTTP timeout, wedging startup at this stage for hours.
-        if (AppSettings.Installation.CurrentProfile.GameLanguage is not ELanguage.English)
+        if (AppSettings.Installation.CurrentProfile.GameLanguage is not ELanguage.English 
+            && !Provider.TryChangeCulture(Provider.GetLanguageCode(AppSettings.Installation.CurrentProfile.GameLanguage)))
         {
-            var cultureTask = Task.Run(() =>
-                Provider.TryChangeCulture(Provider.GetLanguageCode(AppSettings.Installation.CurrentProfile.GameLanguage)));
-            var finished = await Task.WhenAny(cultureTask, Task.Delay(TimeSpan.FromSeconds(90)));
-            if (finished != cultureTask)
-            {
-                Log.Warning("Culture/locres load exceeded 90s (cold cache?); continuing without localized names");
-                Info.Message("Internationalization", "Language files are still downloading, item names may be unlocalized until the next launch.");
-            }
-            else if (!cultureTask.Result)
-            {
-                Info.Message("Internationalization", $"Failed to load language \"{AppSettings.Installation.CurrentProfile.GameLanguage.Description}\"");
-            }
+            Info.Message("Internationalization", $"Failed to load language \"{AppSettings.Installation.CurrentProfile.GameLanguage.Description}\"");
         }
     }
 
@@ -775,78 +646,97 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     {
         return await Task.Run(() =>
         {
-            Bitmap? icon = null;
-            string? displayName = null;
-            string? exportType = null;
             var fileName = gameFilePath.SubstringAfterLast("/").SubstringBefore(".");
+            var fallbackIcon = ImageExtensions.AvaresBitmap("avares://FortnitePorting/Assets/Unreal/DataAsset_64x.png");
 
             if (!Provider.TryLoadPackage(Provider.FixPath(gameFilePath), out var package))
-            {
-                icon = ImageExtensions.AvaresBitmap("avares://FortnitePorting/Assets/Unreal/DataAsset_64x.png");
-                displayName = fileName;
-                return (icon, displayName, exportType);
-            }
+                return (fallbackIcon, fileName, null);
 
-            for (var i = 0; i < package.ExportMapLength; i++)
-            {
-                var pointer = new FPackageIndex(package, i + 1).ResolvedObject;
-                if (pointer?.Object is null) continue;
-                if (!pointer.Name.Text.Equals(fileName) &&
-                    !pointer.Name.Text.Equals(fileName + "_C")) continue;
+            var export = FindPrimaryExport(package, fileName);
+            if (export is null)
+                return (fallbackIcon, fileName, (string?) null);
 
-                var obj = ((AbstractUePackage) package).ConstructObject(pointer.Class, package);
-                exportType = obj.ExportType;
-
-                if (obj is UTexture && pointer.TryLoad(out var textureObj) &&
-                    textureObj is UTexture texture &&
-                    texture.Decode(maxMipSize: 128) is { } decodedTexture)
-                {
-                    if (texture is UTextureCube)
-                        decodedTexture = decodedTexture.ToPanorama();
-                    
-                    icon =  decodedTexture.ToWriteableBitmap();
-                    break;
-                }
-
-                var assetLoader = AssetLoading.Categories
-                    .SelectMany(category => category.Loaders)
-                    .FirstOrDefault(loader => loader.ClassNames.Contains(obj.ExportType));
-                if (assetLoader is not null && pointer.TryLoad(out var assetObj))
-                {
-                    icon = (assetLoader.LowResIconHandler(assetObj) ?? assetLoader.HighResIconHandler(assetObj))
-                        ?.Decode(maxMipSize: 128)?.ToWriteableBitmap();
-                    displayName = assetLoader.DisplayNameHandler(assetObj);
-                    break;
-                }
-
-                displayName = obj.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
-
-                if (obj.GetEditorIconBitmap() is { } editorIcon)
-                {
-                    icon = editorIcon;
-                    break;
-                }
-
-                if (Exporter.DetermineExportType(obj) is var fnExportType and not EExportType.None
-                    && $"avares://FortnitePorting/Assets/FN/{fnExportType}.png" is { } exportIconPath
-                    && AssetLoader.Exists(new Uri(exportIconPath)))
-                {
-                    icon = ImageExtensions.AvaresBitmap(exportIconPath);
-                    break;
-                }
-            }
-
-            // fallback: resolve export type from first export if named export didn't set it
-            if (exportType is null && new FPackageIndex(package, 1).ResolvedObject is { } zeroPointer)
-            {
-                var zeroObj = ((AbstractUePackage) package).ConstructObject(zeroPointer.Class, package);
-                exportType = zeroObj.ExportType;
-            }
-
-            icon ??= ImageExtensions.AvaresBitmap("avares://FortnitePorting/Assets/Unreal/DataAsset_64x.png");
-            displayName ??= fileName;
-            return (icon, displayName, exportType);
+            var (icon, displayName, exportType) = ResolveExportPreview(package, export);
+            return (icon ?? fallbackIcon, displayName ?? fileName, exportType);
         });
+    }
+
+    private static ResolvedObject? FindPrimaryExport(IPackage package, string fileName)
+    {
+        ResolvedObject? namedExport = null;
+        ResolvedObject? packageRootExport = null;
+
+        for (var i = 0; i < package.ExportMapLength; i++)
+        {
+            var pointer = new FPackageIndex(package, i + 1).ResolvedObject;
+            if (pointer?.Object is null) continue;
+
+            var isPackageRoot = pointer.Outer is null or ResolvedPackageObject;
+            if (isPackageRoot)
+                packageRootExport ??= pointer;
+
+            var nameMatches = pointer.Name.Text.Equals(fileName, StringComparison.OrdinalIgnoreCase)
+                              || pointer.Name.Text.Equals(fileName + "_C", StringComparison.OrdinalIgnoreCase);
+            if (!nameMatches) continue;
+
+            if (isPackageRoot)
+                return pointer;
+
+            namedExport ??= pointer;
+        }
+
+        return namedExport ?? packageRootExport;
+    }
+
+    private static (Bitmap? Icon, string? DisplayName, string? ExportType) ResolveExportPreview(
+        IPackage package, ResolvedObject pointer)
+    {
+        var obj = ((AbstractUePackage) package).ConstructObject(pointer.Class, package);
+        var exportType = obj.ExportType;
+        string? displayName = null;
+        Bitmap? icon = null;
+
+        if (obj is UTexture && pointer.TryLoad(out var textureObj) &&
+            textureObj is UTexture texture &&
+            texture.Decode(maxMipSize: 128) is { } decodedTexture)
+        {
+            if (texture is UTextureCube)
+                decodedTexture = decodedTexture.ToPanorama();
+
+            return (decodedTexture.ToWriteableBitmap(), displayName, exportType);
+        }
+
+        if (obj.ExportType is "StaticMesh" or "SkeletalMesh"
+            && pointer.TryLoad(out var meshObj)
+            && MeshPreviewRenderer.TryRender(meshObj) is { } meshPreview)
+        {
+            return (meshPreview.ToWriteableBitmap(), displayName, exportType);
+        }
+
+        var assetLoader = AssetLoading.Categories
+            .SelectMany(category => category.Loaders)
+            .FirstOrDefault(loader => loader.ClassNames.Contains(obj.ExportType));
+        if (assetLoader is not null && pointer.TryLoad(out var assetObj))
+        {
+            icon = (assetLoader.LowResIconHandler(assetObj) ?? assetLoader.HighResIconHandler(assetObj))
+                ?.Decode(maxMipSize: 128)?.ToWriteableBitmap();
+            displayName = assetLoader.DisplayNameHandler(assetObj);
+            return (icon, displayName, exportType);
+        }
+
+        displayName = obj.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
+
+        if (obj.GetEditorIconBitmap() is { } editorIcon)
+            return (editorIcon, displayName, exportType);
+
+        if (Exporter.DetermineExportType(obj) is var fnExportType and not EExportType.None
+            && $"avares://FortnitePorting/Assets/FN/{fnExportType}.png" is { } exportIconPath
+            && AssetLoader.Exists(new Uri(exportIconPath)))
+        {
+            return (ImageExtensions.AvaresBitmap(exportIconPath), displayName, exportType);
+        }
+
+        return (icon, displayName, exportType);
     }
 }
 

@@ -11,8 +11,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <AvaloniaResource Include="Blender\**" Exclude="Blender\fortnite_porting\ueformat\**;Blender\**\__pycache__\**;Blender\**\._*;Blender\**\.DS_Store" />
-        <AvaloniaResource Include="Unreal\**" Exclude="Unreal\UEFormat\**;Unreal\**\._*;Unreal\**\.DS_Store" />
+        <AvaloniaResource Include="Blender\**" Exclude="Blender\fortnite_porting\ueformat\**" />
+        <AvaloniaResource Include="Unreal\**" Exclude="Unreal\UEFormat\**" />
     </ItemGroup>
 
     <ItemGroup>
