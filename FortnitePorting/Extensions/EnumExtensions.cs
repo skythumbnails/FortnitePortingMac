@@ -55,6 +55,18 @@ public class EnumToItemsSource(Type type) : MarkupExtension
     }
 }
 
+// Same as EnumToItemsSource but excludes [Disabled] members entirely (not greyed). Used for
+// dropdowns where disabled options should be hidden (not greyed out) — e.g. the macOS build's
+// FortniteVersion picker where LatestInstalled/Custom aren't supported.
+public class EnumToEnabledItemsSource(Type type) : MarkupExtension
+{
+    public override object ProvideValue(IServiceProvider serviceProvider)
+    {
+        var values = Enum.GetValues(type).Cast<Enum>();
+        return values.Where(value => !value.IsDisabled).Select(value => value.ToEnumRecord()).ToList();
+    }
+}
+
 public record EnumRecord(Type EnumType, Enum Value, string Description, bool IsDisabled = false, MaterialIconKind? Icon = null)
 {
     public override string ToString()

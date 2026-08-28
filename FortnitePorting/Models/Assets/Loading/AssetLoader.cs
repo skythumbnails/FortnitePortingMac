@@ -160,10 +160,10 @@ public partial class AssetLoader : ObservableObject
         {
             Filters = 
             [
-                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
-                                                         || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
-                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
-                                                           || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
+                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
+                                                         || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
+                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
+                                                           || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
             ],
             AllowedTypes = 
             [
@@ -196,7 +196,7 @@ public partial class AssetLoader : ObservableObject
             Filters = 
             [
                 new FilterItem("Weapons", asset => asset.CreationData.GameplayTags.ContainsAny("Weapon")),
-                new FilterItem("Gadgets", asset => asset.CreationData.Object.ExportType.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
+                new FilterItem("Gadgets", asset => asset.CreationData.ObjectClassName.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
                 new FilterItem("Melee", asset => asset.CreationData.GameplayTags.ContainsAny("Melee")),
                 new FilterItem("Consumables", asset => asset.CreationData.GameplayTags.ContainsAny("Consume")),
                 new FilterItem("Lego", asset => asset.CreationData.GameplayTags.ContainsAny("Juno")),
@@ -322,6 +322,12 @@ public partial class AssetLoader : ObservableObject
         FinishedLoading = true;
 
         AssetDatas.Clear();
+
+        // A tab load allocates in one big burst (thousands of package parses) then idles. Force a
+        // compacting collection so the transient garbage — and the large object heap — is handed
+        // back to the OS now instead of ratcheting the footprint up with every opened tab.
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private async Task LoadAsset(FPartialAssetData data)
@@ -345,7 +351,13 @@ public partial class AssetLoader : ObservableObject
         var lowResIconPath = LowResIconHandler(asset)?.GetPathName();
         var highResIconPath = HighResIconHandler(asset)?.GetPathName();
         if (lowResIconPath is null && highResIconPath is null)
+        {
+            // Icon resolution walks imports (hero definition + preview texture packages) that may
+            // stream over the network; log instead of failing silently so chunk/auth problems are
+            // visible rather than presenting as unexplained placeholder icons.
+            Log.Warning("No icon resolved for {AssetName} ({AssetType}); using placeholder icon", asset.Name, Type.Description);
             lowResIconPath = PlaceholderIconPath;
+        }
         
         var args = new AssetItemCreationArgs
         {

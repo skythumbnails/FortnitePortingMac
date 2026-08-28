@@ -118,6 +118,15 @@ public class MeshExport : BaseExport
                 
                 foreach (var part in parts)
                 {
+                    if (part is null)
+                    {
+                        // 41.20+: a character-part package that fails to load materializes as a
+                        // null array entry (see ExportContext.CharacterPart). Skipping keeps the
+                        // export alive, but say so — otherwise a skin silently ports incomplete.
+                        Serilog.Log.Warning("Character part failed to load for {Name}; exporting without it", asset.Name);
+                        continue;
+                    }
+
                     Meshes.AddIfNotNull(Context.CharacterPart(part));
                     
                     montage ??= part.GetOrDefault<UAnimMontage?>("FrontendAnimMontageIdleOverride");
