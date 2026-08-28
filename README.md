@@ -7,8 +7,8 @@
 
 [![Discord](https://discord.com/api/guilds/866821077769781249/widget.png?style=shield)](https://discord.gg/DZ5YFXdBA6)
 [![macOS](https://img.shields.io/badge/macOS-Apple-black?logo=apple&logoColor=white)]()
-[![Release](https://img.shields.io/github/release/YOUR_USERNAME/FortnitePortingMac)]()
-[![Downloads](https://img.shields.io/github/downloads/YOUR_USERNAME/FortnitePortingMac/total?color=green)]()
+[![Release](https://img.shields.io/github/release/skythumbnails/FortnitePortingMac)](https://github.com/skythumbnails/FortnitePortingMac/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/skythumbnails/FortnitePortingMac/total?color=green)]()
 
 <img alt="FortnitePorting Mac" src=".github/cover.png" />
 
