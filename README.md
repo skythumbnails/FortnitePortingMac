@@ -65,18 +65,21 @@ Other macOS-specific quirks:
 - **Audio playback** uses macOS's native `afplay` for music previews and `vgmstream-cli` for decoding Bink/Rada audio (the Windows-only `binkadec` / `radadec` binaries don't exist on Mac). Most tracks play fine; a small number of formats may fail silently.
 - **Texture streaming** off-screen costs significant load time on the **Latest (On-Demand)** profile — recommended to disable it in `Installation Settings` if you don't need the highest-res textures.
 - **Online tab** (Chat / Leaderboard) hides automatically when the FortnitePorting backend doesn't report them as available.
+- **Cosmetic video previews** (new in 4.3.3) play through VLC. Install [VLC 3](https://www.videolan.org/vlc/download-macosx.html) into `/Applications` to see them; without it the preview just stays hidden. VLC 4 is skipped (different library version). You can turn previews off in `App Settings`.
 
 ---
 
 ## Building from Source
 
-Clone the repository:
+Needs the .NET 10 SDK and Xcode's command line tools (`clang`, `codesign`, `hdiutil`). Build from an APFS volume — on exFAT, macOS writes `._*` files the compilers trip over.
 
 ```bash
 git clone https://github.com/skythumbnails/FortnitePortingMac
+cd FortnitePortingMac
+macos/build-dmg.sh            # -> macos/out/FortnitePorting.app and FortnitePorting-<version>-arm64.dmg
 ```
 
-Build using your preferred macOS development environment.
+`DOTNET=/path/to/dotnet macos/build-dmg.sh` picks a specific SDK. The bundle carries the .NET host twice, signed and unsigned, and `macos/launcher.c` starts whichever one this Mac accepts: normal Macs need the signed one, while the macOS 27 betas refuse to start .NET from any signed host.
 
 > [!NOTE]
 > FortnitePorting was originally built for Windows x64.

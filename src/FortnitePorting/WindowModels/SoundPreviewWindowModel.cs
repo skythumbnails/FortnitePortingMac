@@ -10,7 +10,7 @@ using FortnitePorting.Extensions;
 using FortnitePorting.Framework;
 using FortnitePorting.Services;
 using Material.Icons;
-using NAudio.Wave;
+// using NAudio.Wave;
 
 namespace FortnitePorting.WindowModels;
 
@@ -30,7 +30,7 @@ public partial class SoundPreviewWindowModel(
     [ObservableProperty, NotifyPropertyChangedFor(nameof(PauseIcon))] private bool _isPaused;
     public MaterialIconKind PauseIcon => IsPaused ? MaterialIconKind.Play : MaterialIconKind.Pause;
 
-    public AudioPlaybackSession Session { get; } = audio.CreateSession();
+    public AudioPlaybackSession? Session = null; // audio disabled on macOS
 
     private readonly DispatcherTimer _updateTimer = new()
     {
@@ -47,40 +47,26 @@ public partial class SoundPreviewWindowModel(
     {
         _updateTimer.Stop();
         _updateTimer.Tick -= OnUpdateTimerTick;
-        Session.Dispose();
+        // audio disabled on macOS
     }
 
     private void OnUpdateTimerTick(object? sender, EventArgs e)
     {
-        if (Session.Reader is null) return;
-        
-        TotalTime = Session.TotalTime;
-        CurrentTime = Session.CurrentTime;
+        // audio disabled on macOS
     }
 
     public async Task Play()
     {
-        if (SoundWave is null) return;
-        if (!SoundExtensions.TrySaveSoundToAssets(SoundWave, AppSettings.Application.AssetPath, out Stream stream,
-                Dependencies.BinkaDecoderFile, Dependencies.RadaDecoderFile, Dependencies.VgmStreamFile)) return;
-
-        IsPaused = false;
-        Session.Load(stream);
-        Session.Play();
-
-        while (Session.PlaybackState != PlaybackState.Stopped)
-            await Task.Delay(25);
+        // audio disabled on macOS
     }
 
     public void TogglePause()
     {
-        IsPaused = !IsPaused;
-        
-        if (IsPaused)
-            Session.Pause();
-        else
-            Session.Play();
+        // audio disabled on macOS
     }
 
-    public void Scrub(TimeSpan time) => Session.Scrub(time);
+    public void Scrub(TimeSpan time)
+    {
+        // audio disabled on macOS
+    }
 }
