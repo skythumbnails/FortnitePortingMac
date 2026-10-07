@@ -256,13 +256,21 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Provider.LoadOnDemandTocs = AppSettings.Installation.CurrentProfile is { TextureStreamingEnabled: true, UseTextureStreaming: true };
         Provider.LoadExtraDirectories = AppSettings.Installation.CurrentProfile.LoadInstalledBundles;
         Provider.ReadNaniteData = AppSettings.Installation.CurrentProfile.LoadNaniteData;
+        // (the archives mount in parallel, hundreds of them: each one setting the status and logging it queued every
+        // mount on the UI dispatcher's lock and the log file's. The status shows one at most every 100 ms; CUE4Parse
+        // logs each mount itself)
+        long lastMountStatus = 0;
         Provider.VfsMounted += (sender, _) =>
         {
             if (sender is not IAesVfsReader reader) return;
 
-            UpdateStatus(reader.Name.Equals("plugin.utoc")
+            var now = Environment.TickCount64;
+            var last = System.Threading.Interlocked.Read(ref lastMountStatus);
+            if (now - last < 100 || System.Threading.Interlocked.CompareExchange(ref lastMountStatus, now, last) != last) return;
+
+            Status = reader.Name.Equals("plugin.utoc")
                 ? $"Loading GameFeature {reader.Path.SubstringBeforeLast("\\").SubstringAfterLast("\\")}"
-                : $"Loading {reader.Name}");
+                : $"Loading {reader.Name}";
         };
     }
 
