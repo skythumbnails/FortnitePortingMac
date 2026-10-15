@@ -12,6 +12,30 @@ namespace CUE4Parse.FileProvider.Vfs
     {
         private readonly ConcurrentBag<KeyValuePair<long, IReadOnlyDictionary<string, GameFile>>> _indicesBag = new ();
 
+        // The indices newest read order first, as an array every lookup shares. Enumerating the ConcurrentBag froze
+        // it (a lock on every thread's list) and sorted a copy of it on every TryGetValue - three or four times per
+        // package load - so parallel loads queued on that lock. Rebuilt only after a mount changes the bag.
+        private sealed record IndexSnapshot(int Version, KeyValuePair<long, IReadOnlyDictionary<string, GameFile>>[] Items);
+        private IndexSnapshot? _snapshot;
+        private int _version;
+
+        private KeyValuePair<long, IReadOnlyDictionary<string, GameFile>>[] Ordered
+        {
+            get
+            {
+                var version = Volatile.Read(ref _version);
+                var snapshot = Volatile.Read(ref _snapshot);
+                if (snapshot is not null && snapshot.Version == version)
+                    return snapshot.Items;
+
+                // read the version before the bag: a mount racing this build bumps it after adding, so the next
+                // lookup rebuilds instead of keeping a snapshot without it
+                var items = _indicesBag.OrderByDescending(kvp => kvp.Key).ToArray();
+                Volatile.Write(ref _snapshot, new IndexSnapshot(version, items));
+                return items;
+            }
+        }
+
         private ConcurrentDictionary<FPackageId, GameFile>? _byId;
         private int _count;
         public IReadOnlyDictionary<FPackageId, GameFile> ById => GetPackageIndex();
@@ -120,6 +144,7 @@ namespace CUE4Parse.FileProvider.Vfs
             }
 
             _indicesBag.Add(new KeyValuePair<long, IReadOnlyDictionary<string, GameFile>>(readOrder, newFiles));
+            Interlocked.Increment(ref _version);
             Interlocked.Add(ref _count, newFiles.Count);
         }
 
@@ -127,6 +152,8 @@ namespace CUE4Parse.FileProvider.Vfs
         public void Clear()
         {
             _indicesBag.Clear();
+            Interlocked.Increment(ref _version);
+            Volatile.Write(ref _snapshot, null); // (don't keep the cleared indices alive until the next lookup)
             Volatile.Read(ref _byId)?.Clear();
             Interlocked.Exchange(ref _count, 0);
         }
@@ -134,7 +161,7 @@ namespace CUE4Parse.FileProvider.Vfs
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool ContainsKey(string key)
         {
-            foreach (var files in _indicesBag)
+            foreach (var files in Ordered)
             {
                 if (files.Value.ContainsKey(key))
                     return true;
@@ -146,7 +173,7 @@ namespace CUE4Parse.FileProvider.Vfs
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryGetValue(string key, [MaybeNullWhen(false)] out GameFile value)
         {
-            foreach (var files in _indicesBag.OrderByDescending(kvp => kvp.Key))
+            foreach (var files in Ordered)
             {
                 if (files.Value.TryGetValue(key, out value))
                     return true;
@@ -160,7 +187,7 @@ namespace CUE4Parse.FileProvider.Vfs
         public bool TryGetValues(string key, out List<GameFile> values)
         {
             values = [];
-            foreach (var files in _indicesBag.OrderByDescending(kvp => kvp.Key))
+            foreach (var files in Ordered)
             {
                 if (files.Value.TryGetValue(key, out var value))
                 {
@@ -175,7 +202,7 @@ namespace CUE4Parse.FileProvider.Vfs
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public IEnumerator<KeyValuePair<string, GameFile>> GetEnumerator()
         {
-            foreach (var index in _indicesBag.OrderByDescending(kvp => kvp.Key))
+            foreach (var index in Ordered)
             {
                 foreach (var entry in index.Value)
                 {
@@ -200,7 +227,7 @@ namespace CUE4Parse.FileProvider.Vfs
 
             public IEnumerator<string> GetEnumerator()
             {
-                foreach (var index in _orig._indicesBag.OrderByDescending(kvp => kvp.Key))
+                foreach (var index in _orig.Ordered)
                 {
                     foreach (var key in index.Value.Keys)
                     {
@@ -223,7 +250,7 @@ namespace CUE4Parse.FileProvider.Vfs
 
             public IEnumerator<GameFile> GetEnumerator()
             {
-                foreach (var index in _orig._indicesBag.OrderByDescending(kvp => kvp.Key))
+                foreach (var index in _orig.Ordered)
                 {
                     foreach (var key in index.Value.Values)
                     {
