@@ -10,7 +10,6 @@ namespace CUE4Parse.UE4.Assets.Exports.Wwise;
 [JsonConverter(typeof(FWwisePackagedFileConverter))]
 public class FWwisePackagedFile : FStructFallback
 {
-    
     public EWwisePackagingStrategy PackagingStrategy;
     public FName PathName;
     public FName ModularGameplayName;
@@ -69,6 +68,12 @@ public class FWwisePackagedFile : FStructFallback
             // i know it's ugly, but i don't see other solution without rewriting everything
             catch (RIFFSectionSizeException)
             {
+                if (PrefetchSize == 0)
+                {
+                    BulkData = null;
+                    Log.Warning("Failed to read Bulk data for {Name} from bulk data", name);
+                    return;
+                }
                 if (bulkData.TryCombineBulkData(Ar, out var combinedData, out var fullBulkData))
                 {
                     try

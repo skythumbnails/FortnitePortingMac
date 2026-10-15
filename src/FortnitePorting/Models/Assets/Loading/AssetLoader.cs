@@ -13,8 +13,6 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CUE4Parse.UE4.AssetRegistry.Objects;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Exports.Texture;
-using CUE4Parse.UE4.Assets.Objects;
-using CUE4Parse.UE4.Assets.Objects.Properties;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.GameplayTags;
 using DynamicData;
@@ -48,10 +46,6 @@ public partial class AssetLoader : ObservableObject
     public string PlaceholderIconPath = "FortniteGame/Content/Global/Textures/Default/DefaultUI/T_Placeholder_Generic";
     public Func<UObject, UTexture2D?> LowResIconHandler = GetLowResIcon;
     public Func<UObject, UTexture2D?> HighResIconHandler = GetHighResIcon;
-    // The icons' paths read off the asset's references, the textures left unread (GetLowResIconPath). A loader with
-    // its own icon handlers lists by them unless it gives these too.
-    public Func<UObject, string?>? LowResIconPathHandler;
-    public Func<UObject, string?>? HighResIconPathHandler;
     public Func<UObject, string?> DisplayNameHandler = asset => asset.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
     public Func<UObject, string?> DescriptionHandler = asset => asset.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text.TrimEnd();
     public Func<UObject, FGameplayTagContainer?> GameplayTagHandler = GetGameplayTags;
@@ -166,10 +160,10 @@ public partial class AssetLoader : ObservableObject
         {
             Filters = 
             [
-                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                         || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
-                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                           || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
+                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                         || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
+                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                           || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
             ],
             AllowedTypes = 
             [
@@ -202,7 +196,7 @@ public partial class AssetLoader : ObservableObject
             Filters = 
             [
                 new FilterItem("Weapons", asset => asset.CreationData.GameplayTags.ContainsAny("Weapon")),
-                new FilterItem("Gadgets", asset => asset.CreationData.ObjectClassName.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
+                new FilterItem("Gadgets", asset => asset.CreationData.Object.ExportType.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
                 new FilterItem("Melee", asset => asset.CreationData.GameplayTags.ContainsAny("Melee")),
                 new FilterItem("Consumables", asset => asset.CreationData.GameplayTags.ContainsAny("Consume")),
                 new FilterItem("Lego", asset => asset.CreationData.GameplayTags.ContainsAny("Juno")),
@@ -271,9 +265,7 @@ public partial class AssetLoader : ObservableObject
         var manuallyDefinedAssets = ManuallyDefinedAssetsFactory?.Invoke() ?? [];
         TotalAssets = AssetDatas.Count + manuallyDefinedAssets.Length + CustomAssets.Length;
 
-        // (half the cores, 2 to 6: a tab read 2 at a time while the file lookups all queued on one lock; with that
-        // gone, 4 listed 3,510 outfits in 5 s where 2 took 7.5 and 8 was no faster on a 10-core M-series)
-        await Parallel.ForEachAsync(AssetDatas, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 6) },
+        await Parallel.ForEachAsync(AssetDatas, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(2, Environment.ProcessorCount / 2) },
             async (asset, ct) =>
             {
                 if (token.IsCancellationRequested) return;
@@ -330,12 +322,6 @@ public partial class AssetLoader : ObservableObject
         FinishedLoading = true;
 
         AssetDatas.Clear();
-
-        // A tab load allocates in one big burst (thousands of package parses) then idles. Force a
-        // compacting collection so the transient garbage — and the large object heap — is handed
-        // back to the OS now instead of ratcheting the footprint up with every opened tab.
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private async Task LoadAsset(FPartialAssetData data)
@@ -356,16 +342,10 @@ public partial class AssetLoader : ObservableObject
         var isHidden = HideNames.Any(name => asset.Name.Contains(name, StringComparison.OrdinalIgnoreCase)) || HidePredicate(this, asset, displayName);
         if (isHidden && !LoadHiddenAssets) return;
 
-        var lowResIconPath = IconPath(asset, LowResIconPathHandler, LowResIconHandler, GetLowResIcon, GetLowResIconPath);
-        var highResIconPath = IconPath(asset, HighResIconPathHandler, HighResIconHandler, GetHighResIcon, GetHighResIconPath);
+        var lowResIconPath = LowResIconHandler(asset)?.GetPathName();
+        var highResIconPath = HighResIconHandler(asset)?.GetPathName();
         if (lowResIconPath is null && highResIconPath is null)
-        {
-            // Icon resolution walks imports (hero definition + preview texture packages) that may
-            // stream over the network; log instead of failing silently so chunk/auth problems are
-            // visible rather than presenting as unexplained placeholder icons.
-            Log.Warning("No icon resolved for {AssetName} ({AssetType}); using placeholder icon", asset.Name, Type.Description);
             lowResIconPath = PlaceholderIconPath;
-        }
         
         var args = new AssetItemCreationArgs
         {
@@ -419,60 +399,6 @@ public partial class AssetLoader : ObservableObject
     {
         return asset.GetDataListItem<UTexture2D?>("LargeIcon", "Icon")
                ?? asset.GetAnyOrDefault<UTexture2D?>("LargePreviewImage", "LargeIcon", "Icon");
-    }
-
-    // An icon's path without reading its texture: a listed item only needs where its icon is (the grid reads the
-    // icons it shows). Reading each one's texture package to ask its name made a tab read thousands of them, most
-    // from the on-demand containers, before it listed anything.
-    private static string? IconPath(UObject asset, Func<UObject, string?>? byPath, Func<UObject, UTexture2D?> byTexture,
-        Func<UObject, UTexture2D?> defaultByTexture, Func<UObject, string?> defaultByPath)
-    {
-        if (byPath is not null) return byPath(asset);
-        if (byTexture.Method == defaultByTexture.Method && byTexture.Target is null) return defaultByPath(asset);
-        return byTexture(asset)?.GetPathName();
-    }
-
-
-    public static string? GetLowResIconPath(UObject asset)
-    {
-        return DataListReferencePath(asset, "Icon", "LargeIcon")
-               ?? ReferencePath(asset, "Icon", "SmallPreviewImage", "LargeIcon");
-    }
-
-    public static string? GetHighResIconPath(UObject asset)
-    {
-        return DataListReferencePath(asset, "LargeIcon", "Icon")
-               ?? ReferencePath(asset, "LargePreviewImage", "LargeIcon", "Icon");
-    }
-
-    private static string? DataListReferencePath(UObject asset, params string[] names)
-    {
-        if (!asset.TryGetValue(out FInstancedStruct[] dataList, "DataList")) return null;
-        foreach (var item in dataList)
-        {
-            if (item.NonConstStruct is { } holder && ReferencePath(holder, names) is { } path)
-                return path;
-        }
-
-        return null;
-    }
-
-    // the first of these properties (by name, as TryGetValue finds them) holding a soft path or an object reference
-    public static string? ReferencePath(IPropertyHolder holder, params string[] names)
-    {
-        foreach (var name in names)
-        {
-            var tag = holder.Properties.FirstOrDefault(property => property.Name.Text.Equals(name, StringComparison.OrdinalIgnoreCase))?.Tag;
-            var path = tag switch
-            {
-                SoftObjectProperty soft => soft.Value.AssetPathName.Text,
-                ObjectProperty reference => reference.Value?.ResolvedObject?.GetPathName(),
-                _ => null
-            };
-            if (!string.IsNullOrEmpty(path) && path != "None") return path;
-        }
-
-        return null;
     }
 
     public static UTexture2D? GetIcon(UObject asset)
