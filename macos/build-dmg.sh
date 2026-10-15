@@ -17,8 +17,9 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # _EnableMacOSCodeSign=false: the hosts are signed (or not) below, on purpose
+# PublishReadyToRun: the assemblies precompiled - less JIT at startup and on a tab's or an export's first run
 "$DOTNET" publish "$ROOT/src/FortnitePorting/FortnitePorting.csproj" -c Release -r osx-arm64 --self-contained true \
-    -p:PublishSingleFile=false -p:_EnableMacOSCodeSign=false -o "$WORK/publish"
+    -p:PublishSingleFile=false -p:PublishReadyToRun=true -p:_EnableMacOSCodeSign=false -o "$WORK/publish"
 
 APP="$WORK/stage/FortnitePorting.app"
 CONTENTS="$APP/Contents"
