@@ -27,7 +27,10 @@ public partial class InstallationProfile : ObservableValidator
     [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
     [NotifyPropertyChangedFor(nameof(LoadInstalledBundlesEnabled))]
     [NotifyPropertyChangedFor(nameof(IsCustom))]
-    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestInstalled;
+    // macOS default: On-Demand (no local Fortnite install required to get started). Users can
+    // switch a profile to "Latest (Installed)" and point at a local Paks folder to use their
+    // own game data instead.
+    private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestOnDemand;
     
     [NotifyDataErrorInfo]
     [ArchiveDirectory(canValidateProperty: nameof(ArchiveDirectoryEnabled))]
@@ -64,7 +67,11 @@ public partial class InstallationProfile : ObservableValidator
     [JsonIgnore] public bool UnrealVersionEnabled => IsCustom;
     [JsonIgnore] public bool EncryptionKeyEnabled => IsCustom;
     [JsonIgnore] public bool MappingsFileEnabled => IsCustom;
-    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled;
+    // Fortnite 41.20+ moved cosmetic icon textures into the IAS on-demand container
+    // (pakchunk100iad), which is only reachable through .uondemandtoc registration. That
+    // registration is gated on TextureStreamingEnabled, so On-Demand installs need it too —
+    // without it every cosmetic icon falls back to the pink placeholder.
+    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand;
     [JsonIgnore] public bool LoadInstalledBundlesEnabled => FortniteVersion is EFortniteVersion.LatestInstalled;
     [JsonIgnore] public bool CanFetchVersion => !string.IsNullOrWhiteSpace(FetchVersion);
     

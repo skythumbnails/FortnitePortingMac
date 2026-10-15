@@ -58,7 +58,12 @@ public partial class AssetLoaderService : ObservableObject, IService, IResettabl
                             previewImage = AssetLoader.GetHighResIcon(hero);
 
                         return previewImage;
-                    }
+                    },
+                    // (the same, by path: the hero is only read when the outfit names no icon)
+                    LowResIconPathHandler = asset => AssetLoader.GetLowResIconPath(asset)
+                        ?? (asset.TryGetValue(out UObject hero, "HeroDefinition") ? AssetLoader.GetLowResIconPath(hero) : null),
+                    HighResIconPathHandler = asset => AssetLoader.GetHighResIconPath(asset)
+                        ?? (asset.TryGetValue(out UObject hero, "HeroDefinition") ? AssetLoader.GetHighResIconPath(hero) : null)
                 },
                 new AssetLoader(EExportType.Backpack)
                 {
@@ -84,7 +89,12 @@ public partial class AssetLoaderService : ObservableObject, IService, IResettabl
                             previewImage = AssetLoader.GetHighResIcon(weapon);
 
                         return previewImage;
-                    }
+                    },
+                    // (the same, by path)
+                    LowResIconPathHandler = asset => AssetLoader.GetLowResIconPath(asset) is { } path && !path.SubstringAfterLast('/').Contains("Placeholder", StringComparison.OrdinalIgnoreCase)
+                        ? path : asset.TryGetValue(out UObject weapon, "WeaponDefinition") ? AssetLoader.GetLowResIconPath(weapon) : AssetLoader.GetLowResIconPath(asset),
+                    HighResIconPathHandler = asset => AssetLoader.GetHighResIconPath(asset) is { } path && !path.SubstringAfterLast('/').Contains("Placeholder", StringComparison.OrdinalIgnoreCase)
+                        ? path : asset.TryGetValue(out UObject weapon, "WeaponDefinition") ? AssetLoader.GetHighResIconPath(weapon) : AssetLoader.GetHighResIconPath(asset)
                 },
                 new AssetLoader(EExportType.Glider)
                 {

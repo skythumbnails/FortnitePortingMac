@@ -19,6 +19,19 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // macOS: the bundle's launcher (macos/launcher.c) starts the runtime once with this to learn whether a signed
+        // host works on this Mac. Normal Macs need the signed one (unsigned arm64 code is killed); the macOS 27 beta
+        // refuses CoreCLR in any signed host (0x8007000C) and needs the unsigned copy.
+        if (args is ["--probe-runtime"]) return;
+
+        // Archive mounting is sync-over-async: IoStoreReader.Mount -> ProcessIndex ->
+        // GetDirectoryIndexBuffer blocks a pool thread on FFileManifestStream.Read, and there are
+        // ~285 tocs doing it at once. The continuations that would unblock them are queued BEHIND
+        // those blocked threads, so progress is gated on the pool's starvation heuristic injecting
+        // one thread every ~500ms. Raising the floor lets the whole batch run at once instead.
+        ThreadPool.GetMinThreads(out _, out var minIo);
+        ThreadPool.SetMinThreads(Math.Max(Environment.ProcessorCount * 32, 256), minIo);
+
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             if (e.ExceptionObject.ToString() is not { } exceptionString)
@@ -100,6 +113,16 @@ internal static class Program
     private static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<FortnitePortingApp>()
             .UsePlatformDetect()
-            .LogToTrace()
-            .With(new Win32PlatformOptions { CompositionMode = [Win32CompositionMode.WinUIComposition] });
+            // Metal was preferred here through 4.1.9, but a mid-2026 macOS update broke SkiaSharp's
+            // Metal render-target creation (hard crash in gr_backendrendertarget_new_metal at
+            // startup). OpenGL renders correctly and smoothly on Apple Silicon; keep Software last.
+            .With(new AvaloniaNativePlatformOptions
+            {
+                RenderingMode = new[]
+                {
+                    AvaloniaNativeRenderingMode.OpenGl,
+                    AvaloniaNativeRenderingMode.Software
+                }
+            })
+            .LogToTrace();
 }

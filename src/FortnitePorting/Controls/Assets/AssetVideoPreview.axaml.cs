@@ -1,4 +1,7 @@
 using System;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -8,12 +11,13 @@ using FortnitePorting.Models.API.Responses;
 using FortnitePorting.Services;
 using LibVLCSharp.Shared;
 using Lucdem.Avalonia.SourceGenerators.Attributes;
+using Serilog;
 
 namespace FortnitePorting.Controls.Assets;
 
 public partial class AssetVideoPreview : UserControl
 {
-    private static readonly Lazy<LibVLC> SharedLibVLC = new(CreateLibVLC);
+    private static readonly Lazy<LibVLC?> SharedLibVLC = new(CreateLibVLC);
 
     [AvaStyledProperty] private string _cosmeticId = string.Empty;
     [AvaDirectProperty] private bool _isVideoReady;
@@ -139,23 +143,42 @@ public partial class AssetVideoPreview : UserControl
 
     private void StartPlayback(string url)
     {
-        _frameSource = new AssetVideoFrameSource(FrameImage, OnFramePresented);
-        _frameSource.Active = true;
+        // macOS: no libvlc ships with the app (VideoLAN's NuGet build is Intel-only); without VLC.app there is
+        // no preview rather than an error on every hover
+        if (SharedLibVLC.Value is not { } libVlc) return;
 
-        _mediaPlayer = new MediaPlayer(SharedLibVLC.Value)
+        // this runs on the UI thread: a libvlc that loaded but misbehaves must cost the preview, not the window
+        try
         {
-            EnableHardwareDecoding = false,
-            Mute = false,
-            Volume = 100
-        };
-        _mediaPlayer.SetVideoFormatCallbacks(_frameSource.FormatCallback, _frameSource.CleanupCallback);
-        _mediaPlayer.SetVideoCallbacks(_frameSource.LockCallback, null, _frameSource.DisplayCallback);
-        _mediaPlayer.EndReached += OnEndReached;
+            _frameSource = new AssetVideoFrameSource(FrameImage, OnFramePresented);
+            _frameSource.Active = true;
 
-        _media = new Media(SharedLibVLC.Value, new Uri(url),
-            ":input-repeat=65535",
-            ":network-caching=300");
-        _mediaPlayer.Play(_media);
+            _mediaPlayer = new MediaPlayer(libVlc)
+            {
+                EnableHardwareDecoding = false,
+                Mute = false,
+                Volume = 100
+            };
+            _mediaPlayer.SetVideoFormatCallbacks(_frameSource.FormatCallback, _frameSource.CleanupCallback);
+            _mediaPlayer.SetVideoCallbacks(_frameSource.LockCallback, null, _frameSource.DisplayCallback);
+            _mediaPlayer.EndReached += OnEndReached;
+
+            _media = new Media(libVlc, new Uri(url),
+                ":input-repeat=65535",
+                ":network-caching=300");
+            _mediaPlayer.Play(_media);
+        }
+        catch (Exception e)
+        {
+            Log.Warning("Video preview unavailable: {Message}", e.Message);
+            if (_mediaPlayer is not null) _mediaPlayer.EndReached -= OnEndReached;
+            _mediaPlayer?.Dispose();
+            _media?.Dispose();
+            _frameSource?.Dispose();
+            _mediaPlayer = null;
+            _media = null;
+            _frameSource = null;
+        }
     }
 
     private void OnFramePresented()
@@ -175,8 +198,34 @@ public partial class AssetVideoPreview : UserControl
         });
     }
 
-    private static LibVLC CreateLibVLC()
+    [DllImport("libc")]
+    private static extern int setenv(string name, string value, int overwrite);
+
+    private static LibVLC? CreateLibVLC()
     {
+        if (OperatingSystem.IsMacOS())
+        {
+            var vlcApp = new[] { "/Applications/VLC.app", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Applications", "VLC.app") }
+                // libvlc.5 is the libvlc 3.x ABI that LibVLCSharp 3.x binds; VLC 4 bumps the soname, so it is skipped
+                // here rather than loaded and left to fail symbol by symbol
+                .FirstOrDefault(app => File.Exists(Path.Combine(app, "Contents", "MacOS", "lib", "libvlc.5.dylib")));
+            if (vlcApp is null) return null;
+
+            // libc's setenv, not Environment.SetEnvironmentVariable: on Unix .NET keeps that in a managed copy that
+            // native getenv never sees, so libvlc started with no plugins and rejected its own options
+            setenv("VLC_PLUGIN_PATH", Path.Combine(vlcApp, "Contents", "MacOS", "plugins"), 1);
+            try
+            {
+                Core.Initialize(Path.Combine(vlcApp, "Contents", "MacOS", "lib"));
+                return new LibVLC(false, "--quiet", "--verbose=-1", "--no-video-title-show", "--no-video-on-top", "--avcodec-hw=none");
+            }
+            catch (Exception e)
+            {
+                Log.Warning("Video preview unavailable, libvlc failed to load from {VlcApp}: {Message}", vlcApp, e.Message);
+                return null;
+            }
+        }
+
         Core.Initialize();
         return new LibVLC(false,
             "--quiet",
