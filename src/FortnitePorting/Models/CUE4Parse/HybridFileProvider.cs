@@ -91,9 +91,11 @@ public class HybridFileProvider : AbstractVfsFileProvider
             var extension = file.FileName.SubstringAfter('.').ToLower();
             if (extension is "pak" or "utoc")
             {
-                RegisterVfs(file.FileName, (Stream[]) [file.GetStream()],
-                    name => new FStreamArchive(name,
-                        manifest.Files.First(subFile => subFile.FileName.Equals(name)).GetStream()));
+                // random-access archives (from the Material Porter fork): a stream archive seeks its one stream then
+                // reads, so two reads at once read each other's bytes - asset tabs load several items at a time
+                RegisterRandomAccessVfs(new FRandomAccessStreamArchive(file.FileName, file.GetStream(), Versions), (FArchive?) null,
+                    name => new FRandomAccessStreamArchive(name,
+                        manifest.Files.First(subFile => subFile.FileName.Equals(name)).GetStream(), Versions));
             }
 
             if (extension is "uondemandtoc" && LoadOnDemandTocs)
