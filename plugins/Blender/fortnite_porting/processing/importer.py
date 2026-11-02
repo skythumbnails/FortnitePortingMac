@@ -1,7 +1,5 @@
 import json
 import bpy
-import traceback
-from . import forge
 from .context import ImportContext
 from .legacy.context import LegacyImportContext
 from ..server import Server
@@ -15,17 +13,6 @@ class Importer:
     @staticmethod
     def Import(data: str):
         json_data = json.loads(data)
-
-        # Forge extras message: a standalone payload sent by the app's Forge
-        # extras menu - routed to the forge module handler instead of the
-        # normal import path.
-        if "ForgeModule" in json_data:
-            try:
-                ok, message = forge.add_extra(json_data["ForgeModule"], json_data.get("ForgeBlendPath", ""))
-                print(f"[FortnitePorting] Forge: {message}")
-            except Exception:
-                traceback.print_exc()
-            return
 
         meta = json_data.get("MetaData")
         exports = json_data.get("Exports")

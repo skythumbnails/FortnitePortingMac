@@ -1,8 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 project(CUE4Parse-Natives CXX)
-if (CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
-    add_compile_options(-Wno-missing-template-arg-list-after-template-kw)
-endif()
 
 set(CMAKE_CXX_STANDARD 11)
 
