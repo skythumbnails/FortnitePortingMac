@@ -91,25 +91,60 @@ public class HybridFileProvider : AbstractVfsFileProvider
             var extension = file.FileName.SubstringAfter('.').ToLower();
             if (extension is "pak" or "utoc")
             {
-                RegisterVfs(file.FileName, (Stream[]) [file.GetStream()],
-                    name => new FStreamArchive(name,
-                        manifest.Files.First(subFile => subFile.FileName.Equals(name)).GetStream()));
+                // random-access archives (from the Material Porter fork): a stream archive seeks its one stream then
+                // reads, so two reads at once read each other's bytes - asset tabs load several items at a time
+                RegisterRandomAccessVfs(new FRandomAccessStreamArchive(file.FileName, file.GetStream(), Versions), (FArchive?) null,
+                    name => new FRandomAccessStreamArchive(name,
+                        manifest.Files.First(subFile => subFile.FileName.Equals(name)).GetStream(), Versions));
             }
 
             if (extension is "uondemandtoc" && LoadOnDemandTocs)
             {
                 var targetPath = Path.Combine(targetCacheDirectory, file.FileName.SubstringAfterLast("/"));
-                if (!File.Exists(targetPath))
+
+                // Existence alone is not enough. Streaming straight to the final path means any
+                // interruption — quit, sleep, network drop, ejected drive — leaves a truncated toc
+                // that is then trusted forever, and a truncated multi-container toc is not
+                // recoverable at the parse layer: FOnDemandToc seeks to a container's DataOffset
+                // without a bounds check, so the first read lands past EOF inside FSHAHash and
+                // throws EndOfStreamException instead of anything the parser recognises as
+                // corruption. The manifest knows the exact length, so verify against it.
+                if (!IsCachedTocComplete(targetPath, file.FileSize))
                 {
-                    await using var fileStream = new FileStream(targetPath, FileMode.Create, FileAccess.Write);
-                    await file.GetStream().CopyToAsync(fileStream);
+                    var tempPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                    try
+                    {
+                        await using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                        {
+                            await file.GetStream().CopyToAsync(fileStream);
+                        }
+                        File.Move(tempPath, targetPath, overwrite: true);
+                    }
+                    catch
+                    {
+                        try { File.Delete(tempPath); } catch { /* ignored */ }
+                        throw;
+                    }
                 }
-                
+
                 var archive = new FByteArchive(targetPath, await File.ReadAllBytesAsync(targetPath), Versions);
                 var ioChunkToc = new IoChunkToc(archive);
                 await RegisterVfsAsync(ioChunkToc);
             }
 
+        }
+    }
+
+    private static bool IsCachedTocComplete(string path, long expectedLength)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists && info.Length == expectedLength;
+        }
+        catch
+        {
+            return false;
         }
     }
 }

@@ -23,7 +23,6 @@ using FortnitePorting.Models.Radio;
 using FortnitePorting.Shared.Extensions;
 using FortnitePorting.Validators;
 using Material.Icons;
-using NAudio.Wave;
 using Newtonsoft.Json;
 
 namespace FortnitePorting.ViewModels.Settings;
@@ -76,12 +75,19 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
     [ObservableProperty, NotifyPropertyChangedFor(nameof(TransparencyHints))] private EThemeType _theme = EThemeType.Amethyst;
     
     [JsonIgnore]
-    public ObservableCollection<WindowTransparencyLevel> TransparencyHints => Theme is EThemeType.Mica ? [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur] : [WindowTransparencyLevel.AcrylicBlur];
+    public ObservableCollection<WindowTransparencyLevel> TransparencyHints => Theme switch
+    {
+        // Mica prefers the Windows Mica material (falls back to blur on macOS).
+        EThemeType.Mica => [WindowTransparencyLevel.Mica, WindowTransparencyLevel.AcrylicBlur],
+        // Tahoe's liquid-glass panels need the native blur behind the window to frost through.
+        EThemeType.Tahoe => [WindowTransparencyLevel.AcrylicBlur, WindowTransparencyLevel.Blur],
+        _ => [WindowTransparencyLevel.AcrylicBlur]
+    };
     
     public string AssetPath => UseAssetsPath && Directory.Exists(AssetsPath) ? AssetsPath : App.AssetsFolder.FullName;
     
     [JsonIgnore]
-    public DirectSoundDeviceInfo[] AudioDevices => Audio.Devices;
+    public string[] AudioDevices => []; // audio output device selection is Windows-only (DirectSound); inert on macOS
 
     [JsonIgnore]
     public EExportType[] AssetTypes => Enum.GetValues<EExportType>().Where(type => !type.IsDisabled && type.IsAssetType).ToArray();
