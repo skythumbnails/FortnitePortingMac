@@ -98,7 +98,20 @@ class TastyImportContext:
         target_skeleton.rotation_euler = Euler((0, 0, 0))
         target_skeleton.scale = Vector((1, 1, 1))
 
-        self.create_tasty_rig(target_skeleton, data.get("MasterSkeletalMesh"))
+        # Same protection as the outfit-import path: a mid-build failure on a non-standard
+        # skeleton must not leave the armature half-rigged with no explanation.
+        try:
+            self.create_tasty_rig(target_skeleton, data.get("MasterSkeletalMesh"))
+        except Exception as e:
+            import traceback
+            print(f"[FNPORTING] Tasty rig (standalone) failed:\n{traceback.format_exc()}")
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except Exception:
+                pass
+            Server.instance.send_message(
+                f"The Tasty rig could not be applied to this armature — this usually means a "
+                f"non-standard skeleton. ({type(e).__name__}: {e})")
 
 
     def create_tasty_rig(self, target_skeleton, master_skeleton_mesh):

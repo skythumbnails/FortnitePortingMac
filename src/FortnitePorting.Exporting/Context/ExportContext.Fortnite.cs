@@ -26,8 +26,14 @@ namespace FortnitePorting.Exporting.Context;
 
 public partial class ExportContext
 {
-    public ExportPart? CharacterPart(UObject part)
+    public ExportPart? CharacterPart(UObject? part)
     {
+        // Fortnite 41.20+: entries in BaseCharacterParts/CharacterParts arrays can fail to
+        // load (on-demand /BRCosmetics packages that aren't streamed in, or otherwise
+        // unresolvable package indices). CUE4Parse materializes those as null array
+        // elements, so skip them instead of throwing a NullReferenceException.
+        if (part is null) return null;
+
         var skeletalMesh = part.GetOrDefault<USkeletalMesh?>("SkeletalMesh");
         if (skeletalMesh is null) return null;
 

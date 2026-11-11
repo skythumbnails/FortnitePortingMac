@@ -7,6 +7,7 @@ from ..enums import *
 from ..utils import *
 from ...utils import *
 from ...logger import Log
+from .. import forge
 
 def create_texture_node(nodes, name, image, srgb):
     node = nodes.new(type="ShaderNodeTexImage")
@@ -76,6 +77,42 @@ material_name_cache = {}
 
 class MaterialImportContext:
     
+    def _apply_forge_if_enabled(self, material, meta):
+        # Optional Forge V4 shader application (see processing/forge.py).
+        # ensure_forge_data is only attempted once per import run - on failure
+        # a single warning is printed and every later call is a no-op.
+        if not self.options.get("UseForgeMaterials"):
+            return
+        if material is None:
+            return
+
+        # "Forge Applies To" scope: OutfitsOnly / Characters / Everything (default).
+        # Anything outside the chosen scope keeps the normal FortnitePorting shader.
+        scope = self.options.get("ForgeScope", "Everything")
+        if scope in ("OutfitsOnly", 0):
+            if self.type not in (EExportType.OUTFIT,):
+                return
+        elif scope in ("Characters", 1):
+            if self.type not in (EExportType.OUTFIT, EExportType.CHARACTER_PART, EExportType.FALL_GUYS_OUTFIT):
+                return
+
+        if not hasattr(self, "_forge_ready"):
+            ok, reason = forge.ensure_forge_data(self.options.get("ForgeBlendPath"))
+            self._forge_ready = ok
+            if not ok:
+                print(f"[FortnitePorting] Forge: {reason} Skipping Forge material setup.")
+
+        if not self._forge_ready:
+            return
+
+        try:
+            # apply_forge itself skips materials that already carry a Forge
+            # character shader, so cached/reused datablocks aren't forged twice.
+            forge.apply_forge(material, meta.get("ForgePart") if meta else None)
+        except Exception:
+            traceback.print_exc()
+
+
     def import_material(self, material_slot, material_data, meta, as_material_data=False):
 
         if not as_material_data:
@@ -141,6 +178,9 @@ class MaterialImportContext:
         if existing_material := get_valid_cached_id(material_hash_cache, hash_key):
             if not as_material_data:
                 material_slot.material = existing_material
+                # The cache can hand back a material built before Forge was
+                # enabled (or one already forged - apply_forge dedupes that).
+                self._apply_forge_if_enabled(existing_material, meta)
                 return
 
         # same name but different hash
@@ -523,6 +563,9 @@ class MaterialImportContext:
 
         material_hash_cache[hash_key] = material
         material_name_cache[material_name.casefold()] = material
+
+        if not as_material_data:
+            self._apply_forge_if_enabled(material, meta)
 
 
     def import_material_standalone(self, data):

@@ -1,0 +1,14 @@
+<Project>
+  <!-- Runs after the SDK's default item globs are populated, so these Removes actually take
+       effect (a Remove in Directory.Build.props would run too early). Strips the exFAT
+       AppleDouble "._*" sidecars from every item type, including the explicit AvaloniaResource
+       include ("Assets\**") that DefaultItemExcludes does not cover. -->
+  <ItemGroup>
+    <Compile Remove="**/._*.cs" />
+    <AvaloniaResource Remove="**/._*" />
+    <AvaloniaXaml Remove="**/._*" />
+    <EmbeddedResource Remove="**/._*" />
+    <None Remove="**/._*" />
+    <Content Remove="**/._*" />
+  </ItemGroup>
+</Project>

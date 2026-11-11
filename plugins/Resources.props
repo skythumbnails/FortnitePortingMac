@@ -9,11 +9,11 @@
 
     <ItemGroup>
         <AvaloniaResource Include="$(PluginRoot)Blender\**\*"
-                          Exclude="$(PluginRoot)Blender\fortnite_porting\ueformat\**"
+                          Exclude="$(PluginRoot)Blender\fortnite_porting\ueformat\**;$(PluginRoot)Blender\**\__pycache__\**;$(PluginRoot)Blender\**\._*;$(PluginRoot)Blender\**\.DS_Store"
                           Link="Blender\%(RecursiveDir)%(Filename)%(Extension)"
                           Visible="false"/>
         <AvaloniaResource Include="$(PluginRoot)Unreal\**\*"
-                          Exclude="$(PluginRoot)Unreal\UEFormat\**"
+                          Exclude="$(PluginRoot)Unreal\UEFormat\**;$(PluginRoot)Unreal\**\._*;$(PluginRoot)Unreal\**\.DS_Store"
                           Link="Unreal\%(RecursiveDir)%(Filename)%(Extension)"
                           Visible="false"/>
     </ItemGroup>
