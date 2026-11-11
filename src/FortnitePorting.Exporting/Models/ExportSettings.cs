@@ -16,14 +16,20 @@ public class ExportSettings
     public ESoundFormat SoundFormat { get; set; } = ESoundFormat.WAV;
     public bool OpenFoldersOnExport { get; set; } = false;
 
-    public ExportOptions CreateExportOptions()
+    public ExportOptions CreateExportOptions(bool includeDisabledMeshSections = false)
     {
         return new ExportOptions(
             meshFormat: MeshFormat,
             naniteMeshFormat: ExportNanite ? ENaniteMeshFormat.NaniteLast : ENaniteMeshFormat.NoNanite,
             meshQuality: MeshQuality,
+            textureFormat: ImageFormat switch
+            {
+                EImageFormat.TGA => ETextureFormat.Tga,
+                _ => ETextureFormat.Png
+            },
             compressionFormat: CompressionFormat,
             exportMorphTargets: true,
-            exportMaterials: false);
+            exportMaterials: false,
+            includeDisabledMeshSections: includeDisabledMeshSections);
     }
 }

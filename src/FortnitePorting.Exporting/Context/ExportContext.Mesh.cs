@@ -15,8 +15,10 @@ using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse.Utils;
+using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.Exporting.Models;
 using FortnitePorting.Shared.Extensions;
+using Serilog;
 
 namespace FortnitePorting.Exporting.Context;
 
@@ -37,20 +39,29 @@ public partial class ExportContext
     {
         return Mesh<ExportMesh>(mesh);
     }
+
+    public ExportMesh? Mesh(USkeletalMesh? mesh, bool includeDisabledMeshSections)
+    {
+        return Mesh<ExportMesh>(mesh, includeDisabledMeshSections);
+    }
     
-    public T? Mesh<T>(USkeletalMesh? mesh) where T : ExportMesh, new()
+    public T? Mesh<T>(USkeletalMesh? mesh, bool includeDisabledMeshSections = false) where T : ExportMesh, new()
     {
         if (mesh is null) return null;
 
+        var exportOptions = includeDisabledMeshSections
+            ? Meta.Settings.CreateExportOptions(includeDisabledMeshSections: true)
+            : FileExportOptions;
+
         try
         {
-            if (FileExportOptions.ExportMorphTargets)
+            if (exportOptions.ExportMorphTargets)
                 mesh.PopulateMorphTargetVerticesData();
 
-            using var convertedMesh = new SkeletalMeshDto(mesh, FileExportOptions.MeshQuality, FileExportOptions.NaniteMeshFormat);
+            using var convertedMesh = new SkeletalMeshDto(mesh, exportOptions);
             if (convertedMesh.LODs.Count <= 0) return null;
 
-            var files = CreateMeshFormat().BuildSkeletalMesh(mesh.Name, mesh.GetPathName(), FileExportOptions, convertedMesh);
+            var files = CreateMeshFormat().BuildSkeletalMesh(mesh.Name, mesh.GetPathName(), exportOptions, convertedMesh);
             var exportPart = new T
             {
                 Name = mesh.Name,
@@ -61,12 +72,13 @@ public partial class ExportContext
             AddMeshMaterials(exportPart, convertedMesh);
             return exportPart;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Log.Error(e, "Failed to convert skeletal mesh {Path}", mesh.GetPathName());
             return null;
         }
     }
-    
+
     public ExportMesh? Mesh(UStaticMesh? mesh)
     {
         return Mesh<ExportMesh>(mesh);
@@ -78,7 +90,7 @@ public partial class ExportContext
 
         try
         {
-            using var convertedMesh = new StaticMeshDto(mesh, FileExportOptions.MeshQuality, FileExportOptions.NaniteMeshFormat);
+            using var convertedMesh = new StaticMeshDto(mesh, FileExportOptions);
             if (convertedMesh.LODs.Count <= 0) return null;
 
             var files = CreateMeshFormat().BuildStaticMesh(mesh.Name, mesh.GetPathName(), FileExportOptions, convertedMesh);
@@ -92,8 +104,9 @@ public partial class ExportContext
             AddMeshMaterials(exportPart, convertedMesh);
             return exportPart;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Log.Error(e, "Failed to convert static mesh {Path}", mesh.GetPathName());
             return null;
         }
     }
@@ -126,8 +139,9 @@ public partial class ExportContext
     
     public ExportMesh? MeshComponent(USkeletalMeshComponent meshComponent)
     {
-        var mesh = meshComponent.GetSkeletalMesh().Load<USkeletalMesh>();
-        if (mesh is null) return null;
+        meshComponent.GatherTemplateProperties();
+        
+        if (meshComponent.GetSkeletalMesh().LoadOrDefault<USkeletalMesh>() is not { } mesh) return null;
 
         var exportMesh = Mesh(mesh);
         if (exportMesh is null) return null;
@@ -148,8 +162,8 @@ public partial class ExportContext
     
     public ExportMesh? MeshComponent(UStaticMeshComponent meshComponent)
     {
-        var mesh = meshComponent.GetStaticMesh().Load<UStaticMesh>();
-        if (mesh is null) return null;
+        meshComponent.GatherTemplateProperties();
+        if (meshComponent.GetStaticMesh().LoadOrDefault<UStaticMesh>() is not { } mesh) return null;
 
         var exportMesh = meshComponent is USplineMeshComponent splineComp ? MeshComponent(splineComp) : Mesh(mesh);
         if (exportMesh is null) return null;
@@ -200,7 +214,7 @@ public partial class ExportContext
 
         try
         {
-            using var convertedMesh = new StaticMeshDto(mesh, FileExportOptions.MeshQuality);
+            using var convertedMesh = new StaticMeshDto(mesh, FileExportOptions);
             if (convertedMesh.LODs.Count <= 0) return null;
 
             var files = CreateMeshFormat().BuildStaticMesh(mesh.Name, mesh.GetPathName(), FileExportOptions, convertedMesh);

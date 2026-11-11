@@ -159,10 +159,10 @@ public partial class AssetLoader : ObservableObject
         {
             Filters = 
             [
-                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                         || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
-                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld")
-                                                           || (asset.CreationData.ObjectPath ?? "").Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
+                new FilterItem("Battle Royale", asset => !(asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                         || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))),
+                new FilterItem("Save The World", asset => asset.CreationData.GameplayTags.ContainsAny("CampaignHero", "SaveTheWorld") 
+                                                           || asset.CreationData.Object.GetPathName().Contains("SaveTheWorld", StringComparison.OrdinalIgnoreCase))
             ],
             AllowedTypes = 
             [
@@ -195,7 +195,7 @@ public partial class AssetLoader : ObservableObject
             Filters = 
             [
                 new FilterItem("Weapons", asset => asset.CreationData.GameplayTags.ContainsAny("Weapon")),
-                new FilterItem("Gadgets", asset => asset.CreationData.ObjectClassName.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
+                new FilterItem("Gadgets", asset => asset.CreationData.Object.ExportType.Equals("AthenaGadgetItemDefinition", StringComparison.OrdinalIgnoreCase)),
                 new FilterItem("Melee", asset => asset.CreationData.GameplayTags.ContainsAny("Melee")),
                 new FilterItem("Consumables", asset => asset.CreationData.GameplayTags.ContainsAny("Consume")),
                 new FilterItem("Lego", asset => asset.CreationData.GameplayTags.ContainsAny("Juno")),
@@ -264,9 +264,7 @@ public partial class AssetLoader : ObservableObject
         var manuallyDefinedAssets = ManuallyDefinedAssetsFactory?.Invoke() ?? [];
         TotalAssets = AssetDatas.Count + manuallyDefinedAssets.Length + CustomAssets.Length;
 
-        // (half the cores, 2 to 6: a tab read 2 at a time while the file lookups all queued on one lock; with that
-        // gone, 4 listed 3,510 outfits in 5 s where 2 took 7.5 and 8 was no faster on a 10-core M-series)
-        await Parallel.ForEachAsync(AssetDatas, new ParallelOptions { MaxDegreeOfParallelism = Math.Clamp(Environment.ProcessorCount / 2, 2, 6) },
+        await Parallel.ForEachAsync(AssetDatas, new ParallelOptions { MaxDegreeOfParallelism = Math.Min(2, Environment.ProcessorCount / 2) },
             async (asset, ct) =>
             {
                 if (token.IsCancellationRequested) return;
@@ -323,12 +321,6 @@ public partial class AssetLoader : ObservableObject
         FinishedLoading = true;
 
         AssetDatas.Clear();
-
-        // A tab load allocates in one big burst (thousands of package parses) then idles. Force a
-        // compacting collection so the transient garbage — and the large object heap — is handed
-        // back to the OS now instead of ratcheting the footprint up with every opened tab.
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-        GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
     }
 
     private async Task LoadAsset(FPartialAssetData data)
@@ -352,13 +344,7 @@ public partial class AssetLoader : ObservableObject
         var lowResIconPath = LowResIconHandler(asset);
         var highResIconPath = HighResIconHandler(asset);
         if (lowResIconPath is null && highResIconPath is null)
-        {
-            // Icon resolution walks imports (hero definition + preview texture packages) that may
-            // stream over the network; log instead of failing silently so chunk/auth problems are
-            // visible rather than presenting as unexplained placeholder icons.
-            Log.Warning("No icon resolved for {AssetName} ({AssetType}); using placeholder icon", asset.Name, Type.Description);
             lowResIconPath = PlaceholderIconPath;
-        }
         
         var args = new AssetItemCreationArgs
         {

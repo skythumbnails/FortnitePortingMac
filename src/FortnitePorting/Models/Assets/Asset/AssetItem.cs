@@ -59,7 +59,7 @@ public class AssetItem : Base.BaseAssetItem
         Id = Guid.NewGuid();
         CreationData = args;
 
-        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.ObjectPath ?? string.Empty);
+        IsFavorite = AppSettings.Application.FavoriteAssets.Contains(CreationData.Object.GetPathName());
 
         Rarity = CreationData.Object.GetOrDefault("Rarity", EFortRarity.Uncommon);
         
@@ -81,24 +81,6 @@ public class AssetItem : Base.BaseAssetItem
             Series = SeriesCache.GetOrAdd(seriesPackage.Name,
                 _ => seriesPackage.Load<UFortItemSeriesDefinition>());
         }
-
-        // Everything the grid needs (rarity, set, season, series, icon path) is now captured, so
-        // drop the parsed asset object. It re-parses on demand for export/preview/styles. This is
-        // the main lever that keeps a loaded tab from pinning thousands of parsed UObjects in RAM.
-        CreationData.ReleaseObject();
-    }
-
-    // Grid thumbnails render small — cap decodes at 256px (4-16x less memory than native icon res).
-    private const int IconDisplayMaxDimension = 256;
-
-    private static SKBitmap? DownscaleToFit(SKBitmap source, int maxDimension)
-    {
-        var longest = Math.Max(source.Width, source.Height);
-        if (longest <= maxDimension) return null;
-        var scale = maxDimension / (float) longest;
-        var info = new SKImageInfo(Math.Max(1, (int) (source.Width * scale)),
-            Math.Max(1, (int) (source.Height * scale)), source.ColorType, source.AlphaType);
-        return source.Resize(info, SKFilterQuality.Medium);
     }
 
     public async Task LoadBitmapAsync()
@@ -123,14 +105,8 @@ public class AssetItem : Base.BaseAssetItem
         try
         {
             var texture = await UEParse.Provider!.SafeLoadPackageObjectAsync<UTexture2D>(iconPath);
-            using var iconBitmap = texture?.Decode(maxMipSize: IconDisplayMaxDimension)?.ToSkBitmap();
-            if (iconBitmap is null) return null;
-
-            // Grid icons never need full resolution; reading the 256px mip (and downscaling a texture
-            // without one) keeps hundreds of realized icons from holding megabytes each. Upstream reads
-            // the 128px mip, which goes soft on a Retina screen once the tiles are zoomed past 1x.
-            using var scaled = DownscaleToFit(iconBitmap, IconDisplayMaxDimension);
-            return (scaled ?? iconBitmap).ToWriteableBitmap();
+            using var iconBitmap = texture?.Decode(maxMipSize: 128)?.ToSkBitmap();
+            return iconBitmap?.ToWriteableBitmap();
         }
         catch
         {

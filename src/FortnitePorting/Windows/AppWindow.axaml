@@ -38,7 +38,7 @@
             <Grid Grid.Column="0">
                 <sidebar:Sidebar x:Name="Sidebar" ItemSelected="OnSidebarItemSelected">
                     <sidebar:Sidebar.Header>
-                        <controls:AppHeader x:Name="SidebarHeader" />
+                        <controls:AppHeader />
                     </sidebar:Sidebar.Header>
                     <sidebar:Sidebar.Items>
                         <sidebar:SidebarItemText Text="General" />
@@ -334,7 +334,7 @@
                     </ItemsControl>
 
                     <Button Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" HorizontalAlignment="Right"
-                            IsVisible="{Binding ShowCloseButton}"
+                            IsVisible="{Binding CanClose}"
                             VerticalAlignment="Top"
                             Margin="{ext:Space -1}"
                             Content="{material:MaterialIconExt Close}" Command="{Binding CloseCommand}" />
@@ -401,6 +401,6 @@
                                  Grid.Row="0" 
                                  Grid.RowSpan="2" />
 
-        <controls:WindowTitleBar x:Name="WindowsChromeButtons" Grid.Row="0"/>
+        <controls:WindowTitleBar Grid.Row="0"/>
     </Grid>
 </Window>
